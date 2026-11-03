@@ -1,6 +1,6 @@
 (() => {
   if (window.top !== window || !/\.html?$/i.test(location.pathname)) return;
-  if (globalThis.__wmlUpdaterBridge?.version === '0.7.0') return;
+  if (globalThis.__wmlUpdaterBridge?.version === '0.7.1') return;
   globalThis.__wmlUpdaterBridge?.dispose?.();
   const notified = new Set(), requests = new Map();
   const validId = id => typeof id === 'string' && id.length <= 100 && /^[a-zA-Z0-9._-]+$/.test(id);
@@ -77,7 +77,7 @@
     later.onclick = () => box.remove(); box.append(label, open, later); stack.append(box);
   };
   chrome.runtime.onMessage.addListener(receive);
-  globalThis.__wmlUpdaterBridge={version:'0.7.0',dispose(){
+  globalThis.__wmlUpdaterBridge={version:'0.7.1',dispose(){
     clearInterval(timer); window.removeEventListener('message',bridge); chrome.runtime.onMessage.removeListener(receive);
     document.getElementById('wml-browser-updater-notices')?.remove();
   }};

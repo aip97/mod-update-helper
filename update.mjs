@@ -19,7 +19,6 @@ let bulkRoot = null;
 let rememberedRoot = null;
 let namesRoot = null;
 let automaticRefreshPending = false, automaticRefreshRunning = false;
-const passwords = new Map();
 const selectedUpdates = new Set();
 const jobs = [];
 const nativeRoots = new Set();
@@ -182,7 +181,7 @@ function error(value) { $('error').hidden = !value; $('error').textContent = val
 function refreshButtons() {
   const locked = busy || diagnosing || !!approval;
   $('change-password').disabled = locked;
-  for (const id of ['mod-select', 'post-url', 'password', 'save-source', 'check', 'folder', 'reload']) $(id).disabled = locked || !selectedId;
+  for (const id of ['mod-select', 'post-url', 'save-source', 'check', 'folder', 'reload']) $(id).disabled = locked || !selectedId;
   $('refresh-active').disabled = locked;
   $('use-detected-folder').disabled = locked || !game || jobs.some(job => ['waiting','running'].includes(job.state));
   $('settings-search').disabled = locked || !game?.mods?.length;
@@ -262,6 +261,7 @@ async function diagnose() {
   const current = () => token === diagnosticGeneration && modId === selectedId && postURL === (currentMod()?.apiPostURL || $('post-url').value.trim());
   $('diagnostic').hidden = false; $('diagnostic-summary').textContent = '게시글 작성 형식을 진단하고 있습니다.';
   try {
+    if (!await askPassword()) { clearDiagnostic(); return; }
     const result = await message({type:'DIAGNOSE_POST',modId,postURL});
     if (!current()) return;
     renderDiagnostic(result.diagnostic);
@@ -282,7 +282,6 @@ async function selectMod() {
   $('post-url').value = sourceURL(mod);
   $('source-status').textContent = sourceLabel(mod) + (mod?.apiPostURL ? ' · 모드가 제공한 주소를 사용합니다. 저장된 수동 주소는 예비 주소로 유지됩니다.' : ' · API가 없어도 게시글 주소를 직접 등록할 수 있습니다.');
   $('format-example').textContent = `제목: [${selectedId || 'mod-id'}] 1.2.3\n본문: 다운로드 (1.2.3)\nhttps://kio.ac/c/공유코드\nZIP 이름: ${selectedId || 'mod-id'} 1.2.3.zip`;
-  $('password').value = passwords.get(selectedId) ?? defaultPassword;
   $('mod-version').textContent = mod?.modVersion || '—';
   resetTarget(); error('');
   if (checks.has(selectedId)) $('release-status').textContent = checks.get(selectedId).text;
@@ -373,8 +372,8 @@ $('use-detected-folder').onclick = async () => {
 async function inspectPost(mod, postURL) {
   if (!postURL) throw Object.assign(new Error('게시글 주소를 먼저 등록해 주세요.'), {code:'MISSING_URL'});
   validatePostURL(postURL);
-  const result = (await message({type:'CHECK_RELEASE',modId:mod.modId,tabId:game.tabId,...(passwords.has(mod.modId) ? {password:passwords.get(mod.modId)} : {})})).release;
-  if (result.passwordRequired) throw Object.assign(new Error('기본 비밀번호를 설정하거나 모드별 비밀번호를 확인한 뒤 다시 시도하세요.'), {code:'PASSWORD_REQUIRED'});
+  const result = (await message({type:'CHECK_RELEASE',modId:mod.modId,tabId:game.tabId})).release;
+  if (result.passwordRequired) throw Object.assign(new Error('공통 비밀번호를 확인한 뒤 다시 시도하세요.'), {code:'PASSWORD_REQUIRED'});
   if (result.modId !== mod.modId || result.postURL !== postURL) throw new Error('확인한 출처가 변경되었습니다. 활성 목록을 다시 불러와 주세요.');
   const cmp = compareVersions(result.version, mod.modVersion);
   checks.set(mod.modId, {release:result,text:`파일명 확인 완료 · ${cmp > 0 ? '업데이트 가능' : cmp === 0 ? '최신 상태' : '설치 버전이 더 높음 · 다운그레이드 안 함'} · 배포 ${result.version} (ZIP 내부는 설치 승인 후 검사)`});
@@ -390,12 +389,13 @@ async function check() {
   const token = generation, modId = selectedId, postURL = $('post-url').value.trim();
   $('release-status').textContent = '배포 게시글을 확인하고 있습니다.';
   try {
+    if (!await askPassword()) { $('release-status').textContent='비밀번호 설정을 취소했습니다.'; return; }
     if (!postURL) throw Object.assign(new Error('게시글 주소를 먼저 등록해 주세요.'), {code:'MISSING_URL'});
     validatePostURL(postURL);
     if (!currentMod()?.apiPostURL) { await message({type:'SAVE_SETTINGS', modId, postURL}); settings[modId] = {postURL}; }
     let result;
     try { result = await inspectPost(currentMod(), postURL); }
-    catch (e) { if (e.code !== 'PASSWORD_REQUIRED' || passwords.has(modId) || !await askPassword(true)) throw e; result = await inspectPost(currentMod(), postURL); }
+    catch (e) { if (e.code !== 'PASSWORD_REQUIRED' || !await askPassword(true)) throw e; result = await inspectPost(currentMod(), postURL); }
     if (token !== generation || modId !== selectedId) return;
     if (result.modId !== modId || result.postURL !== postURL) throw new Error('확인한 배포 정보의 모드 또는 출처가 다릅니다. 다시 확인해 주세요.');
     release = result;
@@ -410,7 +410,7 @@ $('mod-select').onchange = selectMod;
 async function askPassword(force = false) {
   if (passwordConfigured && !force) return true;
   const dialog = $('password-dialog');
-  $('default-password').value = passwordConfigured ? defaultPassword : 'somisoft';
+  $('default-password').value = passwordConfigured ? defaultPassword : '';
   dialog.returnValue = 'cancel';
   const choice = new Promise(resolve => dialog.addEventListener('close', () => resolve(dialog.returnValue), {once:true}));
   dialog.showModal(); $('default-password').focus();
@@ -418,7 +418,6 @@ async function askPassword(force = false) {
   const value = $('default-password').value;
   await message({type:'SET_DEFAULT_PASSWORD',password:value});
   defaultPassword = value; passwordConfigured = true;
-  if (!passwords.has(selectedId)) $('password').value = value;
   return true;
 }
 $('change-password').onclick = async () => {
@@ -428,7 +427,12 @@ $('change-password').onclick = async () => {
   catch(e) { error(e.message); }
   finally { busy=false; refreshButtons(); }
 };
-$('password').oninput = () => { if (!busy && !approval && !diagnosing && selectedId) passwords.set(selectedId, $('password').value); };
+chrome.storage?.onChanged?.addListener((changes,area)=>{
+  if(area==='local' && changes.kioDefaultPassword) {
+    const value=changes.kioDefaultPassword.newValue;
+    passwordConfigured=typeof value==='string';defaultPassword=passwordConfigured?value:'';
+  }
+});
 $('post-url').oninput = () => { clearDiagnostic(); if (busy || approval) return; checks.delete(selectedId); resetTarget(); };
 $('save-source').onclick = async () => {
   if (busy || diagnosing || approval || !selectedId) return;
@@ -448,6 +452,7 @@ $('check-all').onclick = async () => {
   if (busy || diagnosing || approval) return;
   busy = true; release = null; refreshButtons(); error('');
   try {
+    if (!await askPassword()) return;
     for (const mod of game?.mods || []) {
       if (mod.supported === false) continue;
       try { const result = await inspectPost(mod, sourceURL(mod)); if (mod.modId === selectedId) release = result; } catch(e) { recordCheckError(mod.modId,e); }
@@ -514,7 +519,7 @@ $('bulk-update').onclick = async () => {
       if (!active?.active || active.modId !== mod.modId || active.modVersion !== mod.modVersion || active.wmlVersion !== info.wmlVersion || active.gameVersion !== info.gameVersion || info.wmlVersion !== game.wmlVersion || info.gameVersion !== game.gameVersion) throw new Error(`${mod.modId}: 실행 중인 모드와 선택한 폴더의 버전이 다릅니다. 폴더 모드를 사용하고 게임을 새로고침해 주세요.`);
       if (compareVersions(found.version, info.modVersion) <= 0) throw new Error(`${mod.modId}: 새 버전만 적용할 수 있습니다.`);
       if (active.url !== game.url || active.documentId !== game.documentId) throw new Error('실행 중인 게임 문서가 바뀌었습니다. 목록을 새로고침해 주세요.');
-      items.push(Object.freeze({root:targetRoot,modId:mod.modId,version:found.version,fileName:found.fileName,url:found.url,postURL:found.postURL,installed:info.modVersion,runtimeVersion:mod.modVersion,wmlVersion:info.wmlVersion,gameVersion:info.gameVersion,gameFamily:info.gameFamily,gameFile:info.gameFile,gameURL:game.url,documentId:game.documentId,password:passwords.get(mod.modId) ?? defaultPassword,bytes:null,tabId:game.tabId}));
+      items.push(Object.freeze({root:targetRoot,modId:mod.modId,version:found.version,fileName:found.fileName,url:found.url,postURL:found.postURL,installed:info.modVersion,runtimeVersion:mod.modVersion,wmlVersion:info.wmlVersion,gameVersion:info.gameVersion,gameFamily:info.gameFamily,gameFile:info.gameFile,gameURL:game.url,documentId:game.documentId,password:defaultPassword,bytes:null,tabId:game.tabId}));
     }
     approval = Object.freeze({kind:'bulk',items:Object.freeze(items)});
     $('confirm-description').textContent = `선택한 ${items.length}개 모드 업데이트\n\n` + items.map(item => `${item.modId}\n버전: ${item.installed} → ${item.version}\n게임: ${gameDescription(item)} (${item.gameFile})\n출처: ${item.postURL}\n다운로드: ${item.url}\n대상: ${item.root.name}/wml/mods/${item.modId}`).join('\n\n');
@@ -523,7 +528,7 @@ $('bulk-update').onclick = async () => {
   finally { busy = false; refreshButtons(); }
 };
 function askApproval(bytes = null, fileName = '') {
-  approval = Object.freeze({root,modId:selectedId,version:release.version,fileName:release.fileName,url:release.url,postURL:release.postURL,installed:installed.modVersion,runtimeVersion:currentMod()?.modVersion,wmlVersion:installed.wmlVersion,gameVersion:installed.gameVersion,gameFamily:installed.gameFamily,gameFile:installed.gameFile,gameURL:game.url,documentId:game.documentId,password:$('password').value,bytes,tabId:game?.tabId});
+  approval = Object.freeze({root,modId:selectedId,version:release.version,fileName:release.fileName,url:release.url,postURL:release.postURL,installed:installed.modVersion,runtimeVersion:currentMod()?.modVersion,wmlVersion:installed.wmlVersion,gameVersion:installed.gameVersion,gameFamily:installed.gameFamily,gameFile:installed.gameFile,gameURL:game.url,documentId:game.documentId,password:defaultPassword,bytes,tabId:game?.tabId});
   $('confirm-description').textContent = `모드: ${approval.modId}\n게임: ${gameDescription(approval)} (${approval.gameFile})\n출처: ${approval.postURL}\n다운로드: ${approval.url}\n대상: ${root.name}/wml/mods/${approval.modId}\n버전: ${approval.installed} → ${approval.version}${fileName ? `\n선택한 ZIP: ${fileName}` : ''}`;
   refreshButtons(); $('confirm').returnValue = 'cancel'; $('confirm').showModal();
 }
@@ -702,3 +707,7 @@ $('refresh-active').onclick = loadActive;
 showTab(new URL(location.href).searchParams.get('view') === 'settings' ? 'settings' : 'updates');
 gameUpdater=initGameUpdater({message,askPassword,getPassword:()=>defaultPassword,isBusy:()=>busy || diagnosing || !!approval || jobs.some(job=>['waiting','running'].includes(job.state)),setBusy:value=>{busy=value;refreshButtons();},onInstalled:()=>{checks.clear();resetTarget();$('game-status').textContent='게임 본체 설치 완료. 게임을 다시 연 뒤 활성 목록을 새로고침하세요.';}});
 await loadActive();
+if(game && !passwordConfigured) {
+  busy=true;refreshButtons();
+  try {await askPassword();}catch(e){error(e.message);}finally{busy=false;refreshButtons();}
+}

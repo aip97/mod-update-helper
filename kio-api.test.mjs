@@ -59,6 +59,8 @@ try {
   mock({filename:'another-mod 1.82.2.zip'});
   const discovery=await findKioRelease({urls:[options.url],password:options.password,modId:'another-mod'});
   assert.equal(discovery.fileName,'another-mod 1.82.2.zip');
+  mock({filename:'unrelated.zip'});
+  await assert.rejects(findKioRelease({urls:[options.url],password:options.password,modId:'another-mod'}),error=>error.message.includes('another-mod 1.2.3.zip') && error.message.includes('wml/mods/another-mod/mod.js') && error.message.includes(options.url) && error.message.includes('unrelated.zip'));
   mock(); await assert.rejects(findKioRelease({urls:[options.url],modId:'attention-image-prompt'}),{code:'PASSWORD_REQUIRED'});
   mock({duplicate:true}); await assert.rejects(findKioRelease({...options,urls:[options.url],modId:'attention-image-prompt'}),/여러 개/);
   mock({duplicate:true}); await assert.rejects(downloadKioApi(options), /하나로/);

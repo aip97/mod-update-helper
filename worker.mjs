@@ -39,20 +39,20 @@ async function fetchPostHTML(postURL) {
   } finally { await reader.cancel(); }
   return html;
 }
-async function resolveCollection(post, password) {
+async function resolveCollection(post) {
   const saved = await passwordSettings();
-  try { return {...await findKioRelease({urls:post.urls,modId:post.modId,password:password ?? (saved.passwordConfigured ? saved.defaultPassword : undefined)}),postURL:post.postURL,checkedAt:Date.now()}; }
+  try { return {...await findKioRelease({urls:post.urls,modId:post.modId,password:saved.passwordConfigured ? saved.defaultPassword : undefined}),postURL:post.postURL,checkedAt:Date.now()}; }
   catch (error) {
     if (error.code === 'PASSWORD_REQUIRED') return {...post,passwordRequired:true,checkedAt:Date.now()};
     throw error;
   }
 }
-async function latest(modId, postURL, force = false, password) {
+async function latest(modId, postURL, force = false) {
   validateModId(modId); postURL = validatePostURL(postURL);
   const key = 'release-' + modId;
   const stored = await chrome.storage.local.get(key), cached = stored[key];
   if (!force && cached?.postURL === postURL && Date.now() - cached.checkedAt < 3600000) return cached;
-  const release = await resolveCollection(parseReleaseHTML(await fetchPostHTML(postURL), {modId, postURL}), password);
+  const release = await resolveCollection(parseReleaseHTML(await fetchPostHTML(postURL), {modId, postURL}));
   if (!release.passwordRequired) await chrome.storage.local.set({[key]: release});
   return release;
 }
@@ -100,7 +100,7 @@ async function diagnosePost(modId, postURL) {
           const found = await resolveCollection(report.release);
           if (found.passwordRequired) Object.assign(check,{status:'warning',actual:'비밀번호 필요',feedback:'기본 비밀번호를 설정한 뒤 다시 진단하면 파일명을 검사할 수 있습니다.'});
           else {
-            Object.assign(check,{status:'pass',actual:found.fileName,feedback:`${found.versionSource==='header'?'ZIP 내부 헤더':'파일명'} 기준 ${found.version} 버전입니다. 게시글 제목과 달라도 사용할 수 있습니다.`});
+            Object.assign(check,{status:'pass',location:`${found.url} → ${found.fileName}`,actual:found.fileName,expected:`${modId} ${found.version}.zip`,feedback:`${found.versionSource==='header'?'파일명에 버전이 없지만 ZIP 내부 헤더':'파일명'} 기준 ${found.version} 버전입니다. 게시글 제목과 달라도 사용할 수 있습니다.${found.versionSource==='header'?` 빠른 감지를 위한 권장 파일명: ${modId} ${found.version}.zip. 내부 헤더 위치: wml/mods/${modId}/mod.js (포장 폴더 허용).`:''}`});
             if(found.versionSource==='header') Object.assign(report.checks.find(item=>item.id==='zip_contents'),{status:'pass',actual:'ZIP 내부 ID·버전 확인 완료',feedback:'파일명에 버전이 없어 ZIP을 읽어 검사했습니다. 파일은 설치하지 않았으며, 설치 시 다시 검사합니다.'});
             report.release=found;report.version=found.version;
           }
@@ -239,8 +239,7 @@ async function checkMod(message) {
   if (!mod.supported) throw fail('UNSUPPORTED_VERSION', mod.reason);
   if (!mod.postURL) throw fail('MISSING_POST_URL', '모드의 Kone 게시글 주소를 등록해 주세요.');
   let release;
-  if (message.password !== undefined && (typeof message.password !== 'string' || message.password.length > 256)) throw fail('INVALID_REQUEST','비밀번호 형식을 확인해 주세요.');
-  try { release = await latest(mod.modId, mod.postURL, true, message.password); }
+  try { release = await latest(mod.modId, mod.postURL, true); }
   catch (error) { if (!error.code) error.code = /네트워크|연결|시간|확인 실패/.test(error.message) ? 'NETWORK_ERROR' : 'POST_FORMAT_INVALID'; throw error; }
   if (release.passwordRequired) return {state:'password_required',message:'비밀번호를 입력하면 컬렉션의 모드 버전을 확인합니다.',release};
   const comparison = compareVersions(release.version, mod.modVersion);

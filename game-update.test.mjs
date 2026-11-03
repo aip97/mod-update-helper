@@ -20,7 +20,20 @@ assert.throws(()=>gameReleaseFromFiles([...files,files[1]],current,source,'full'
 assert.throws(()=>validateGameUpdateAPI({...source,packages:[{...source.packages[0],file:'../bad{version}.zip'}]}));
 assert.throws(()=>validateGameUpdateAPI({...source,packages:[{...source.packages[0],file:'bad{version}{version}.zip'}]}));
 assert.equal(gameSource({...current,gameFamily:'faith'}).packages.length,2);
+const overtime={...current,gameFamily:'overtime',gameVersion:'overtime-0.9.9'};
+const overtimeSource=gameSource(overtime);
+assert.equal(overtimeSource.postURL,'https://kone.gg/s/wayward-wml/b2UDO8mj_hRKv3nmbHOAeb');
+for(const [edition,name] of [['full','Wayward_Overtime_v1.0.0.zip'],['nosound','Wayward_Overtime_NoSound_v1.0.0.zip']]) {
+ const found=gameReleaseFromFiles([{name,size:123,url}],overtime,overtimeSource,edition);
+ assert.equal(found.gameVersion,'overtime-1.0.0');
+ assert.equal(found.html,'Wayward_Overtime_v1.0.0.html');
+}
+assert.equal(gameSource({...overtime,gameUpdate:source}).postURL,source.postURL);
 assert.equal(gameSource(current),null);
+assert.equal(gameSource({...current,gameFamily:'constructor'}),null);
+assert.throws(()=>gameReleaseFromFiles([{name:'Harbor.zip',size:123,url}],current,source,'full'),error=>error.message.includes('버전이 없습니다') && error.message.includes('Harbor_v{version}.zip') && error.message.includes(url) && error.message.includes('<게임 폴더>/Harbor_v{version}.html'));
+assert.throws(()=>gameReleaseFromFiles([{name:'unrelated.zip',size:123,url}],current,source,'full'),/규칙과 일치/);
+assert.match(gameReleaseFromFiles([...files,{name:'Harbor.zip',size:123,url}],current,source,'full').filenameWarning,/더 최신 파일이라면/);
 assert.equal(validateSnapshot({...current,mods:[],gameUpdate:source}).gameUpdate.postURL,source.postURL);
 assert.ok(validateSnapshot({...current,mods:[],gameUpdate:{}}).gameUpdateError);
 assert.equal(compareGameVersions('2026-11-01-pre10','2026-11-01-pre9'),1);

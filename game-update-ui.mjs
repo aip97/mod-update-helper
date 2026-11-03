@@ -17,6 +17,7 @@ export function initGameUpdater({message,askPassword,getPassword,isBusy,setBusy,
   const refresh=()=>{
     $('game-edition').disabled=isBusy() || !source;
     $('game-check').disabled=isBusy() || !source;
+    $('game-diagnose').disabled=isBusy() || !source;
     $('game-prepare').disabled=isBusy() || !release?.available;
   };
   const check=async(prompt=false)=>{
@@ -30,14 +31,22 @@ export function initGameUpdater({message,askPassword,getPassword,isBusy,setBusy,
     }
     if(game!==checkedGame || $('game-edition').value!==edition) return false;
     release=result;
-    status(`${game.gameVersion} → ${result.release.gameVersion} · ${result.available?'새 게임 버전이 있습니다. 다운로드·검사 후 설치 내용을 확인하세요.':'현재 배포 버전보다 같거나 높습니다.'}`);
+    status(`${game.gameVersion} → ${result.release.gameVersion} · ${result.available?'새 게임 버전이 있습니다. 다운로드·검사 후 설치 내용을 확인하세요.':'현재 배포 버전보다 같거나 높습니다.'}${result.release.filenameWarning?'\n'+result.release.filenameWarning:''}`);
     return true;
   };
   $('game-edition').onchange=()=>{release=null;status('배포판을 선택했습니다. 새 버전을 확인하세요.');refresh();};
-  $('game-check').onclick=async()=>{
+  const checkPost=async(diagnose=false)=>{
     if(isBusy()) return;setBusy(true);release=null;status('게임 배포 게시글과 파일을 확인하고 있습니다…');
-    try {if(!await check(true)) status('게임 버전 확인을 취소했습니다.');}catch(error){status(error.message);}finally{setBusy(false);refresh();}
+    try {
+      if(!await check(true)) status('게임 버전 확인을 취소했습니다.');
+      else if(diagnose) {
+        const file=release.release;
+        status(`게시글 링크·ZIP 파일명 검사 완료\n게시글 제목의 버전은 필요하지 않습니다.\n확인한 파일: ${file.fileName}\n파일명 버전: ${file.gameVersion}\n다운로드 컬렉션: ${file.url}\nZIP 내부 HTML 예상 위치: <게임 폴더>/${file.html}\nHTML 내용·버전·ZIP 구조는 다운로드·검사 단계에서 확인합니다.${file.filenameWarning?'\n'+file.filenameWarning:''}`);
+      }
+    }catch(error){status(error.message);}finally{setBusy(false);refresh();}
   };
+  $('game-check').onclick=()=>checkPost();
+  $('game-diagnose').onclick=()=>checkPost(true);
   $('game-prepare').onclick=async()=>{
     if(isBusy() || !release?.available) return;
     setBusy(true);let root;

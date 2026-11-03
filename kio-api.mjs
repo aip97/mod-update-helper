@@ -99,15 +99,16 @@ function modFile(file, modId) {
 export async function findKioRelease({urls, password, modId}) {
   validateModId(modId);
   need(Array.isArray(urls) && urls.length > 0 && urls.length <= 8, '공유 링크가 없거나 너무 많습니다.');
-  const candidates = [];
+  const candidates = [], locations = [];
   for (const url of new Set(urls)) {
     const collection = await collectionFiles(url, password);
+    locations.push(`${url}\nZIP: ${collection.files.map(file=>get(file,'name')).filter(name=>typeof name==='string' && /\.zip$/i.test(name)).slice(0,8).map(name=>name.replace(/[\x00-\x1f]/g,' ').slice(0,240)).join(', ') || '(없음)'}`);
     for (const file of collection.files) {
       const info = modFile(file, modId);
       if (info) candidates.push({...info, url});
     }
   }
-  need(candidates.length > 0, `${modId} 버전.zip 파일을 찾지 못했습니다. 파일명에 정확한 모드 ID와 버전을 넣어 주세요.`);
+  need(candidates.length > 0, `이 모드와 일치하는 ZIP 파일명이 없습니다.\n권장 파일명: ${modId} 1.2.3.zip (1.2.3은 실제 버전으로 변경)\n버전 없는 ${modId}.zip도 내부 헤더가 맞으면 사용할 수 있습니다.\nZIP 내부 헤더 위치: wml/mods/${modId}/mod.js (포장 폴더 허용)\n다운로드 컬렉션과 발견한 파일:\n${locations.join('\n')}`);
   need(candidates.length <= 32, '이 모드의 배포 파일이 너무 많습니다. 이전 버전을 정리해 주세요.');
   for (const candidate of candidates.filter(item => !item.version)) {
     const bytes = await downloadKioApi({url:candidate.url,fileName:candidate.fileName,modId,password});
