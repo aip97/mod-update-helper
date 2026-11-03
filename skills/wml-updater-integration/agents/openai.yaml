@@ -1,0 +1,4 @@
+interface:
+  default_prompt: "$wml-updater-integration으로 원본 배포 게시글과 수정할 모드 파일을 확인한 뒤 업데이트 연동을 준비해 줘."
+  display_name: "WML 모드 업데이트 연동"
+  short_description: "원본 배포 글과 모드 파일을 확인하고 업데이트 연동 준비"

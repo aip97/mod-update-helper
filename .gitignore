@@ -1,0 +1,8 @@
+test-output/
+*.zip
+__pycache__/
+/WML-Mod-Updater-*/
+
+.release-signing/
+release-source/
+wml-updater-release.json

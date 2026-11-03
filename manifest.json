@@ -1,0 +1,48 @@
+{
+  "manifest_version": 3,
+  "name": "모드 업데이트 도우미",
+  "version": "0.7.0",
+  "minimum_chrome_version": "111",
+  "description": "설치된 모드의 새 버전을 확인하고 파일 검증, 백업, 업데이트와 롤백을 지원합니다.",
+  "permissions": [
+    "storage",
+    "scripting",
+    "nativeMessaging",
+    "alarms"
+  ],
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAsfZ1/tFKgivtToVQBhwK4D31eIfEUqBDZr7T/2088+XdMFIwgE2EJgyMNjSGj1LQs6EweKpQNpBUOdA9XR6FEcujDGPdqOnB0xXM32+eQqH45wYms3MlZe9yzVTLD7hFd2WncfaKF+0750r1CsGEII3O7nuyKiGwHUvsxcpRLZ/Q3NCR+CKOxyoTWXAXteUyIKRKm2yjPzX3R8J8fyd7/imtWydeERdDO4PR515+oehkT3TK8qFq6D0oLnLix+z+tJqelY3oZ3YCUMXbCEWPKfQ/ojl3hhj9c4oPQNx6eR1yBrm+cV02Lnv0h+IxrBiDS2dgOtoZ7yWqyfJRvh06twIDAQAB",
+  "host_permissions": [
+    "file:///*",
+    "https://kone.gg/*",
+    "https://api.kio.ac/*",
+    "https://dalet.mittere.io/*"
+  ],
+  "background": {
+    "service_worker": "worker.mjs",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "모드 업데이트 확인"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "file:///*"
+      ],
+      "js": [
+        "wml-reader.js"
+      ],
+      "run_at": "document_idle",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "file:///*"
+      ],
+      "js": [
+        "game-bridge.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}
