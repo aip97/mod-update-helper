@@ -111,16 +111,17 @@ try {
   root.disconnect();
   const gameURL=pathToFileURL(path.join(temporary,'Wayward test.html')).href;
   const gameRoot=await connectNativeGameFolder(gameURL),gamePort=latestPort;
-  for(const bad of ['../outside.js','saves/game.json','wml/mods/test-mod/mod.js','server/images/private.png','server/game.config.json','CON.txt','run.exe']) {
+  for(const bad of ['../outside.js','saves/game.json','saves/game.js','server/cache/state.js','server/src/cache/state.json','server/src/userdata/save.js','wml/mods/test-mod/mod.js','server/images/private.png','server/game.config.json','CON.txt','run.exe']) {
     assert.equal((await gamePort.raw({op:'game-authorize',backupPath:'.wml-game-updater-backups/'+crypto.randomUUID(),paths:[gameRoot.gameFile,'wml/runtime/wml-core.js',bad]})).ok,false,bad);
   }
   const gameBefore=fs.readFileSync(path.join(temporary,gameRoot.gameFile));
   const gameArchive=path.join(temporary,'game.zip');
-  writeZip(gameArchive,[{name:'Release/Game-2026-11-02.html',data:Buffer.from('<script src="wml/runtime/wml-core.js"></script>/* WML_BRIDGE_BEGIN 2026-11-02 */')},{name:'Release/wml/runtime/wml-core.js',data:Buffer.from("const VERSION = '0.9.5';")},{name:'Release/wml/symbols/2026-11-02.js',data:Buffer.from('const symbols={};')},{name:'Release/wml/mods/test-mod/mod.js',data:Buffer.from('do not replace')}]);
+  writeZip(gameArchive,[{name:'Release/Game-2026-11-02.html',data:Buffer.from('<script src="wml/runtime/wml-core.js"></script>/* WML_BRIDGE_BEGIN 2026-11-02 */')},{name:'Release/wml/runtime/wml-core.js',data:Buffer.from("const VERSION = '0.9.5';")},{name:'Release/wml/symbols/2026-11-02.js',data:Buffer.from('const symbols={};')},{name:'Release/server/src/cache/cacheStore.ts',data:Buffer.from('export const program = true;')},{name:'Release/wml/mods/test-mod/mod.js',data:Buffer.from('do not replace')}]);
   const gameCurrent=await inspectGameRoot(gameRoot,{gameFile:gameRoot.gameFile});
   const gamePkg=await inspectGamePackage(fs.readFileSync(gameArchive),{gameVersion:'2026-11-02',html:'Game-2026-11-02.html'},gameCurrent);
   const gameResult=await applyGameUpdate(gameRoot,gamePkg,{current:gameCurrent,checkClosed:async()=>{}});
   assert.equal((await inspectGameRoot(gameRoot,{gameFile:gameRoot.gameFile})).gameVersion,'2026-11-02');
+  assert.equal(fs.readFileSync(path.join(temporary,'server/src/cache/cacheStore.ts'),'utf8'),'export const program = true;');
   assert.deepEqual(fs.readFileSync(path.join(temporary,gameResult.backupPath,gameRoot.gameFile)),gameBefore);
   assert.equal(fs.readFileSync(path.join(temporary,'wml/mods/test-mod/mod.js'),'utf8'),header('1.0.0'));
   assert.equal((await gamePort.raw({op:'begin',path:'unapproved.js'})).ok,false);

@@ -5,11 +5,13 @@ import path from 'node:path';
 import {writeZip} from './zip-tools.mjs';
 import {validateGameUpdateAPI,validateSnapshot} from './core.mjs';
 import {gameSource,gameReleaseFromFiles} from './game-release.mjs';
-import {inspectGamePackage,applyGameUpdate} from './game-installer.mjs';
+import {inspectGamePackage,applyGameUpdate,preservedGamePath} from './game-installer.mjs';
 import {compareGameVersions} from './game-compat.mjs';
 import {sameGameFolder} from './game-update-ui.mjs';
 
 const current={gameFamily:'harbor',gameVersion:'harbor-1.0.0',wmlVersion:'0.9.5',gameFile:'Game.html'};
+for(const file of ['server/src/cache/cacheStore.ts','server/source/cache/paths.mjs','server/src/config.ts'])assert.equal(preservedGamePath(file),false,file);
+for(const file of ['saves/game.js','server/cache/game.js','server/src/cache/state.json','settings/main.js','server/src/userdata/save.js','node_modules/module.js','server/game.config.json'])assert.equal(preservedGamePath(file),true,file);
 const html=version=>`<meta name="wml-game" content="${version}"><script src="wml/runtime/wml-core.js"></script>`;
 const source={protocol:1,postURL:'https://kone.gg/s/wayward-wml/ctRTv4mPI2NMv8JcYdlQeb',packages:[{id:'full',label:'전체판',file:'Harbor_v{version}.zip',html:'Harbor_v{version}.html'}],preserve:['custom-data']};
 const url='https://kio.ac/c/aC4q-xj6OjUx51pIypLAeb';

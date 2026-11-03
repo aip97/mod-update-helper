@@ -13,7 +13,8 @@ function script:GameDispatch($request) {
         foreach ($relative in $request.paths) {
             Need ($relative -is [string] -and $relative.Length -le 1000 -and $relative -notmatch '[\\:\x00-\x1f<>"|?*]' -and $relative -notmatch '^/|/$|//') 'Invalid game path.'
             foreach ($part in $relative.Split('/')) { Need ($part -notmatch '^\.|[. ]$|^(?i:con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])(?:\.|$)') 'Invalid game path component.' }
-            Need ($relative -notmatch '^(?:wml/(?:mods|presets)|image-packs)(?:/|$)' -and $relative -notmatch '(?:^|/)(?:saves?|savedata|userdata|user-data|profiles?|cache|caches|backups?|logs?|node_modules)(?:/|$)' -and $relative -notmatch '(?:^|/)(?:[^/]+\.)?(?:config|settings)\.json$' -and $relative -notmatch '(?:^|/)[^/]*(?:server|imagegen)[^/]*/images(?:/|$)') 'Game user data cannot be replaced.'
+            $sourceCode = $relative -match '(?:^|/)(?:src|source)/.+\.(?:ts|[cm]?js)$'
+            Need ($relative -notmatch '^(?:wml/(?:mods|presets)|image-packs)(?:/|$)' -and $relative -notmatch '(?:^|/)(?:saves?|savedata|userdata|user-data|profiles?|backups?|node_modules)(?:/|\.|$)' -and ($relative -notmatch '(?:^|/)(?:settings|config|cache|caches|logs?)(?:/|\.|$)' -or $sourceCode) -and $relative -notmatch '(?:^|/)(?:[^/]+\.)?(?:config|settings)\.json$' -and $relative -notmatch '(?:^|/)[^/]*(?:server|imagegen)[^/]*/images(?:/|$)') "Game user data cannot be replaced: $relative"
             Need ($relative -match '\.(?:html?|[cm]?js|ts|json|css|md|txt|png|jpe?g|webp|gif|avif|svg|ico|woff2?|ttf|otf|mp3|ogg|wav|m4a|mp4|webm|lock|cmd|bat|ps1)$' -or $relative -match '(?:^|/)LICENSE(?:\.[\w-]+)?$') 'Unsupported game file type.'
             Need ($paths.Add($relative)) 'Duplicate game path.'
         }

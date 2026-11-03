@@ -129,7 +129,7 @@
   },
   {
     "path": "game-installer.mjs",
-    "sha256": "e003d76f77d2fd88c2603a18d38808b7bbbae9b588d52d712bb1281fd13666c8"
+    "sha256": "6fe3a665bd3e5ca2382c6f0f605393898d59e72d1646e581e77055df59996ee9"
   },
   {
     "path": "game-release.mjs",
@@ -141,7 +141,7 @@
   },
   {
     "path": "game-update.test.mjs",
-    "sha256": "809a69383c1a8af54142e6052ebecf0cc43b17d393b2c2ac8bd1474b16c653a0"
+    "sha256": "c8a16b68ef977a873c3d275a25ef7ba4c807c859cd92f29451ecee735ce9567a"
   },
   {
     "path": "install.ps1",
@@ -193,7 +193,7 @@
   },
   {
     "path": "native-game-update.ps1",
-    "sha256": "c0bd71d0085d4ba9a39325e201ab5c5967b19d9002b141e455665c2f36d60224"
+    "sha256": "59c95a75dd1d37448c866ade29c57e6c10f33aee213c67f311bd5e5b762ddbd5"
   },
   {
     "path": "native-host.cmd",
@@ -205,7 +205,7 @@
   },
   {
     "path": "native-host.test.mjs",
-    "sha256": "71e5d2fe6760e4694bf592f9d8755d7e29d21bd1258cf1529b9a7b6f9406e19c"
+    "sha256": "6ed26a3f039deffc7863e28bd3eef8cd7e04178579faf469e984d60b0dea155c"
   },
   {
     "path": "native-install.ps1",

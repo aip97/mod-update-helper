@@ -7,8 +7,10 @@ const need=(ok,message)=>{if(!ok) throw new Error(message);};
 const sha256=async data=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',data)),n=>n.toString(16).padStart(2,'0')).join('');
 export function preservedGamePath(path,preserve=[]) {
   const lower=path.toLowerCase();
+  const sourceCode=/(?:^|\/)(?:src|source)\/.+\.(?:ts|[cm]?js)$/.test(lower);
   return /^(?:wml\/(?:mods|presets)|image-packs)(?:\/|$)/.test(lower)
-    || /(?:^|\/)(?:saves?|savedata|userdata|user-data|profiles?|settings|config|cache|caches|backups?|logs?|node_modules)(?:\/|\.|$)/.test(lower) && !/\.(?:ts|js|mjs|cjs)$/.test(lower)
+    || /(?:^|\/)(?:saves?|savedata|userdata|user-data|profiles?|backups?|node_modules)(?:\/|\.|$)/.test(lower)
+    || /(?:^|\/)(?:settings|config|cache|caches|logs?)(?:\/|\.|$)/.test(lower) && !sourceCode
     || /(?:^|\/)[^/]*(?:server|imagegen)[^/]*\/images(?:\/|$)/.test(lower)
     || /(?:^|\/)(?:[^/]+\.)?(?:config|settings)\.json$/.test(lower)
     || preserve.some(item=>lower===item.toLowerCase() || lower.startsWith(item.toLowerCase()+'/'));
