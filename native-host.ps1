@@ -9,6 +9,7 @@ $gameRoot = $null
 $gameName = $null
 $writers = @{}
 $selfLease = $null
+$defenderScan = $null
 $gameFiles = New-Object 'Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
 $gamePaths = New-Object 'Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
 $gameDirectories = New-Object 'Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
@@ -84,7 +85,11 @@ function DropWriter([string]$token) {
         $writers.Remove($token)
     }
 }
+. (Join-Path $PSScriptRoot 'native-defender.ps1')
 function Dispatch($request) {
+    if ($request.op -is [string] -and $request.op.StartsWith('scan-')) {
+        return (DefenderDispatch $request)
+    }
     if ($request.op -is [string] -and $request.op.StartsWith('self-')) {
         if (-not (Get-Command SelfDispatch -ErrorAction SilentlyContinue)) { . (Join-Path $PSScriptRoot 'native-self-update.ps1') }
         return (SelfDispatch $request)
@@ -204,6 +209,7 @@ try {
     }
 } catch { [Console]::Error.WriteLine('WML native helper stopped: ' + $_.Exception.Message) }
 finally {
+    if ($defenderScan) { try { DropDefenderScan } catch {} }
     foreach ($token in @($writers.Keys)) { try { DropWriter $token } catch {} }
     if ($gameRollback) { try { RestoreGameTransaction } catch { [Console]::Error.WriteLine('Game recovery failed. Backup: ' + $gameBackup) } }
     if ($selfLease) { $selfLease.Dispose() }

@@ -1,12 +1,12 @@
 {
   "name": "mod-update-helper",
-  "version": "0.7.1",
+  "version": "0.7.3",
   "private": true,
   "type": "module",
   "engines": {"node": ">=22"},
   "scripts": {
-    "test": "node --test core.test.mjs installer.test.mjs zip-unicode.test.mjs kio-api.test.mjs game-compat.test.mjs game-update.test.mjs post-diagnostics.test.mjs worker-notify.test.mjs self-update-worker.test.mjs examples-test.mjs examples/package-mod.test.mjs",
-    "test:windows": "node --test native-host.test.mjs self-update.test.mjs package.test.mjs",
+    "test": "node --test core.test.mjs installer.test.mjs zip-unicode.test.mjs kio-api.test.mjs game-compat.test.mjs game-update.test.mjs post-diagnostics.test.mjs worker-notify.test.mjs self-update-worker.test.mjs self-update-ui.test.mjs defender-scan.test.mjs examples-test.mjs examples/package-mod.test.mjs",
+    "test:windows": "node --test native-host.test.mjs native-defender.test.mjs self-update.test.mjs package.test.mjs",
     "package": "node package.mjs",
     "export": "node export-source.mjs"
   }

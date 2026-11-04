@@ -5,9 +5,10 @@ import {loadGameFolder, saveGameFolder, forgetGameFolder} from './folder-store.m
 import {gameFamilyLabel} from './game-compat.mjs';
 import {connectNativeGameFolder} from './native-filesystem.mjs';
 import {MOD_NAMES_KO} from './mod-names-ko.mjs';
+import {scanDownloadedZip} from './defender-scan.mjs';
 import {holdUpdaterWindow} from './self-update.mjs';
 import {initGameUpdater} from './game-update-ui.mjs';
-await holdUpdaterWindow();
+const selfUpdater=await holdUpdaterWindow();
 let gameUpdater;
 const $ = id => document.getElementById(id);
 let defaultPassword = '', passwordConfigured = false;
@@ -22,6 +23,23 @@ let automaticRefreshPending = false, automaticRefreshRunning = false;
 const selectedUpdates = new Set();
 const jobs = [];
 const nativeRoots = new Set();
+$('self-update-progress').addEventListener('cancel', event => event.preventDefault());
+$('self-update-apply').onclick = async () => {
+  if (!selfUpdater || busy || diagnosing || approval || jobs.some(job => ['waiting','running'].includes(job.state))) {
+    $('self-update-status').textContent='진행 중인 작업을 마친 후 도우미를 업데이트해 주세요.';
+    return;
+  }
+  busy=true; refreshButtons(); $('self-update-progress').showModal();
+  let restarting=false;
+  try {
+    const result=await selfUpdater.apply();
+    if (result?.state === 'updated') { restarting=true; return; }
+    $('self-update-status').textContent=result?.state === 'waiting'
+      ? '다른 도우미 창이 열려 있습니다. 해당 창의 작업을 마치고 닫은 후 다시 시도해 주세요.'
+      : result?.state === 'current' ? '도우미가 최신 버전입니다.' : '새 도우미 버전을 다시 확인해 주세요.';
+  } catch (err) { $('self-update-status').textContent=`도우미 업데이트 실패: ${err.message}`; }
+  finally { if (!restarting) { $('self-update-progress').close(); busy=false; refreshButtons(); } }
+};
 function closeUnusedNativeRoots() {
   for (const handle of nativeRoots) {
     if (handle === bulkRoot || handle === root || jobs.some(job => ['waiting','running'].includes(job.state) && job.approved.root === handle)) continue;
@@ -624,6 +642,8 @@ async function runJob(job) {
       } else {
         status('승인한 모드 ZIP을 내려받고 있습니다…');
         const bytes = approved.bytes || await downloadRelease({modId:approved.modId,url:approved.url,version:approved.version,fileName:approved.fileName,password:approved.password});
+        status('Windows 보안으로 모드 ZIP을 검사하고 있습니다…');
+        await scanDownloadedZip(bytes);
         const pkg = await inspectPackage(bytes, approved.version, approved.modId);
         const compatibility = evaluateCompatibility(pkg, current.wmlVersion, current.gameVersion);
         $('mod-compatibility').textContent = `ZIP: ${gameFamilyLabel(pkg.gameFamily)} · ${pkg.gameSpec} · 지원 WML ${pkg.supportedWml?.join(', ') || '미선언'}`;

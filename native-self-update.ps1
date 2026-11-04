@@ -128,6 +128,8 @@ function SelfReadRelease($config) {
 }
 function SelfStage([string]$root, [byte[]]$zipBytes, $release, $config) {
     SelfNeed ($zipBytes.Length -eq $release.size -and (SelfHash $zipBytes) -ceq $release.sha256) 'Release ZIP hash or size mismatch.'
+    if (-not (Get-Command DefenderScanBytes -ErrorAction SilentlyContinue)) { . (Join-Path $PSScriptRoot 'native-defender.ps1') }
+    DefenderScanBytes $zipBytes
     Add-Type -AssemblyName System.IO.Compression
     $name = 'staging-' + [Guid]::NewGuid().ToString('N'); $stage = SelfPath $root $name
     [void][IO.Directory]::CreateDirectory($stage)

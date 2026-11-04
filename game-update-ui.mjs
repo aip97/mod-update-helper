@@ -1,5 +1,6 @@
 import {connectNativeGameFolder} from './native-filesystem.mjs';
 import {readModMetadata,evaluateCompatibility} from './installer.mjs';
+import {scanDownloadedZip} from './defender-scan.mjs';
 
 export function sameGameFolder(tabURL,gameURL) {
   try {
@@ -62,6 +63,8 @@ export function initGameUpdater({message,askPassword,getPassword,isBusy,setBusy,
       status(`${target.fileName} 다운로드·검사 중… (${(target.size/1024/1024).toFixed(1)} MiB)`);
       const {downloadKioFile}=await import('./kio-api.mjs');
       const bytes=await downloadKioFile({url:target.url,fileName:target.fileName,password:getPassword(),maxBytes:512*1024*1024});
+      status('Windows 보안으로 게임 ZIP을 검사하고 있습니다…');
+      await scanDownloadedZip(bytes);
       const pkg=await inspectGamePackage(bytes,target,current),warnings=[];
       for(const mod of running.mods) {
         try {

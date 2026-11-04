@@ -13,7 +13,7 @@ const current=path.join(root,'extension');fs.mkdirSync(current);
 const {privateKey}=crypto.generateKeyPairSync('rsa',{modulusLength:2048});
 const key=privateKey.export({type:'pkcs8',format:'pem'});
 const config={schema:1,repository:'aip97/test-release',publicKey:publicKeyOf(key)};
-const files=['manifest.json','worker.mjs','update.html','native-host.ps1','native-self-update.ps1','self-update-config.json','core.mjs','installer.mjs','game-compat.mjs','self-update.mjs'];
+const files=['manifest.json','worker.mjs','update.html','native-host.ps1','native-defender.ps1','native-self-update.ps1','self-update-config.json','core.mjs','installer.mjs','game-compat.mjs','self-update.mjs'];
 const manifest={...JSON.parse(fs.readFileSync(path.join(dir,'manifest.json'))),version:'0.7.0'};
 for(const name of files) fs.copyFileSync(path.join(dir,name),path.join(current,name));
 fs.writeFileSync(path.join(current,'manifest.json'),JSON.stringify(manifest));
@@ -41,6 +41,7 @@ function CheckAncestors([string]$path) {
 }
 function Assert($condition,$message) {if(-not $condition){throw $message}}
 function Reject($action) { $failed=$false;try{& $action}catch{$failed=$true};Assert $failed 'Expected rejection' }
+function DefenderScanBytes([byte[]]$bytes) { $script:scannedBytes=$bytes.Length }
 . (Join-Path $root 'extension/native-self-update.ps1')
 $config=Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $root 'extension/self-update-config.json') | ConvertFrom-Json
 $bytes=[IO.File]::ReadAllBytes((Join-Path $root 'release.json'))
@@ -54,7 +55,12 @@ Reject {SelfPath $root 'extension/con.txt'}
 $zip=[IO.File]::ReadAllBytes((Join-Path $root $release.asset))
 $bad=$zip.Clone();$bad[40]=$bad[40] -bxor 255
 Reject {SelfStage $root $bad $release $config}
+function DefenderScanBytes([byte[]]$bytes) { throw 'Defender threat or scan failure' }
+Reject {SelfStage $root $zip $release $config}
+Assert (@(Get-ChildItem -LiteralPath $root -Directory -Filter 'staging-*').Count -eq 0) 'Failed scan staged a release'
+function DefenderScanBytes([byte[]]$bytes) { $script:scannedBytes=$bytes.Length }
 $stage=SelfStage $root $zip $release $config
+Assert ($script:scannedBytes -eq $zip.Length) 'Verified ZIP was not scanned'
 Assert ([IO.File]::Exists((Join-Path $root ($stage+'/manifest.json')))) 'Staged files missing'
 $script:selfLease=$null
 $lease=SelfDispatch @{op='self-lease'}

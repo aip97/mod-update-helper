@@ -29,7 +29,7 @@ test('user/modder distributions are complete, separated, installable, and never 
   assert.deepEqual(userFiles, [
     'manifest.json','worker.mjs','core.mjs','game-compat.mjs','mod-names-ko.mjs','game-bridge.js','wml-reader.js','installer.mjs','folder-store.mjs','kio.js','kio-api.mjs',
     'update.html','update.css','update.mjs','vendor/cbor-x-1.6.4.mjs','vendor/cbor-x-LICENSE',
-    'native-filesystem.mjs','native-host.ps1','native-host.cmd','native-install.ps1',
+    'native-filesystem.mjs','native-host.ps1','native-host.cmd','native-install.ps1','defender-scan.mjs','native-defender.ps1',
   'self-update.mjs','self-update-config.json','native-self-update.ps1','native-bootstrap.ps1','native-bootstrap.cmd',
   'game-release.mjs','game-installer.mjs','game-update-ui.mjs','native-game-update.ps1',
     'THIRD_PARTY_NOTICES.md','GUIDE.html','Install.cmd','install.ps1',
@@ -66,7 +66,7 @@ test('user/modder distributions are complete, separated, installable, and never 
     }
   }
   const script = path.join(user, 'install.ps1');
-  assert.match(powershell(['-File', script, '-ValidateOnly']), /33/);
+  assert.match(powershell(['-File', script, '-ValidateOnly']), /35/);
   const destination = path.join(testRoot, 'installed');
   fs.mkdirSync(destination);
   fs.writeFileSync(path.join(destination, 'existing.txt'), 'preserve');
