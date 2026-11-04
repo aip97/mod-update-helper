@@ -30,62 +30,63 @@ export async function reopenUpdaterWindow() {
 }
 export function startSelfUpdates() {
   if (!chrome.alarms || !chrome.runtime.getManifest) return;
-  let running = false;
+  let active = null, pendingForce = false;
   void reopenUpdaterWindow().catch(() => {});
   const save = result => chrome.storage.local.set({[STATUS]:{...result,checkedAt:Date.now()}});
-  async function run(force = false) {
-    if (running) return;
-    running = true;
+  async function check(force) {
     try {
       await nativeUpdate('self-confirm',{version:chrome.runtime.getManifest().version});
       const previous=(await chrome.storage.local.get(STATUS))[STATUS];
       if (!force && previous && Date.now()-previous.checkedAt < 21600000 && previous.state !== 'waiting') return;
       let {result} = await nativeUpdate('self-check');
       if (result.state === 'current' && previous?.state === 'updated' && previous.version === result.version) result=previous;
-      if (result.state === 'available') {
-        await navigator.locks.request(LOCK,{ifAvailable:true},async lock => {
-          if (!lock) { result={...result,state:'waiting'}; return; }
-          result=(await nativeUpdate('self-apply')).result;
-          await save(result);
-          if (result.state === 'updated') chrome.runtime.reload();
-        });
-      }
+      if (result.state === 'available') result={...result,state:'waiting'};
       await save(result);
-      if (result.state === 'waiting') await chrome.alarms.create('helper-update-retry',{delayInMinutes:1});
     } catch (error) {
-      if (error.message.includes('SELF_RESTART')) {
-        await navigator.locks.request(LOCK,{ifAvailable:true},async lock => {
-          if (lock) chrome.runtime.reload();
-          else await chrome.alarms.create('helper-update-retry',{delayInMinutes:1});
-        });
-      } else await save({state:'error',message:error.message});
-    } finally { running=false; }
+      await save(error.message.includes('SELF_RESTART') ? {state:'restart'} : {state:'error',message:error.message});
+    }
+  }
+  function run(force = false) {
+    if (active) { pendingForce ||= force; return active; }
+    active = (async () => {
+      do { pendingForce = false; await check(force); force = pendingForce; } while (force);
+    })().finally(() => { active = null; });
+    return active;
   }
   chrome.alarms.onAlarm.addListener(alarm => { if (alarm.name.startsWith('helper-update-')) void run(true); });
   chrome.runtime.onStartup.addListener(() => void run(true));
   chrome.runtime.onInstalled.addListener(() => void run(true));
-  void chrome.alarms.create('helper-update-check',{periodInMinutes:360});
+  void chrome.alarms.get('helper-update-check').then(alarm => {
+    if (!alarm) return chrome.alarms.create('helper-update-check',{periodInMinutes:360});
+  });
   void run();
+  return () => run(true);
 }
 export async function holdUpdaterWindow() {
   if (!chrome.runtime.getManifest || !chrome.runtime.connectNative || !navigator.locks) return;
-  const labels={current:'최신 상태',unconfigured:'자동 업데이트: 배포 저장소 준비 중',waiting:'새 버전이 있습니다',updated:'업데이트 완료',blocked:'이전 버전으로 복구됨',error:'자동 업데이트 연결 확인 필요'};
+  const labels={current:'최신 상태',unconfigured:'자동 업데이트: 배포 저장소 준비 중',waiting:'새 버전이 있습니다',updated:'업데이트 완료',blocked:'이전 버전으로 복구됨',restart:'도우미를 다시 열어 주세요',error:'자동 업데이트 연결 확인 필요'};
   const show = async () => {
     const value=(await chrome.storage.local.get(STATUS))[STATUS];
     const element=document.getElementById('self-update-status');
     if (element) element.textContent=`도우미 ${chrome.runtime.getManifest().version}${value ? ' · ' + (labels[value.state] || '') + (value.latest ? ` (${value.latest})` : '') : ''}`;
     const button=document.getElementById('self-update-apply');
-    if (button) button.hidden=value?.state !== 'waiting';
+    if (button) {
+      button.hidden=!['waiting','restart'].includes(value?.state);
+      button.textContent=value?.state === 'restart' ? '도우미 다시 시작' : '도우미 업데이트 후 재시작';
+    }
   };
   chrome.storage.onChanged?.addListener((changes,area) => { if (area === 'local' && changes[STATUS]) void show(); });
   void show();
-  let release, held;
+  let release, held, restartRequired = false;
   const acquire = () => new Promise(resolve => {
     held = navigator.locks.request(LOCK,{mode:'shared'},async () => {
       let port;
       try {
         const lease=await nativeUpdate('self-lease',{},true); port=lease.port;
-        if (lease.result.version !== chrome.runtime.getManifest().version) { port.disconnect(); chrome.runtime.reload(); return; }
+        if (lease.result.version !== chrome.runtime.getManifest().version) {
+          restartRequired = true;
+          await chrome.storage.local.set({[STATUS]:{state:'restart',version:lease.result.version,checkedAt:Date.now()}});
+        }
       } catch (error) {
         if (error.message.includes('SELF_BUSY')) { location.reload(); return; }
       }
@@ -102,7 +103,11 @@ export async function holdUpdaterWindow() {
     try {
       await navigator.locks.request(LOCK,{ifAvailable:true},async lock => {
         if (!lock) { result={state:'waiting'}; return; }
+        if (restartRequired) { restarting=true; chrome.runtime.reload(); result={state:'updated'}; return; }
         result=(await nativeUpdate('self-apply')).result;
+        if (result.state === 'current' && result.version !== chrome.runtime.getManifest().version) {
+          restarting=true; chrome.runtime.reload(); result={...result,state:'updated'}; return;
+        }
         if (result.state === 'updated') {
           await chrome.storage.local.set({[STATUS]:{...result,checkedAt:Date.now()}});
           restarting=true; chrome.runtime.reload();

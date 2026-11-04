@@ -33,6 +33,7 @@ globalThis.fetch = async url => {
 };
 await import('./worker.mjs');
 const send = message => new Promise(resolve => handler(message, {url: gameURL, documentId, frameId: 0, tab: {id: 1}}, resolve));
+assert.equal((await send({type:'CHECK_HELPER_UPDATE'})).code,'INVALID_SENDER','game content cannot request a helper update check');
 const snapshot = {wmlVersion: '0.9.4', gameVersion: '2026-11-01', mods: [{id: 'first-mod', version: '1.0.0'}, {id: 'second-mod', version: '1.0.0'}]};
 const apis = [{modId: 'first-mod', protocol: 2, active: true, postURL: POST_URL}, {modId: 'second-mod', protocol: 2, active: true, postURL: post2}];
 const announce = (metadata = apis) => send({type: 'GAME_SNAPSHOT', snapshot, apis: metadata});

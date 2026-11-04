@@ -1,6 +1,6 @@
 (() => {
   if (window.top !== window || !/\.html?$/i.test(location.pathname)) return;
-  if (globalThis.__wmlUpdaterBridge?.version === '0.7.3') return;
+  if (globalThis.__wmlUpdaterBridge?.version === '0.7.4') return;
   globalThis.__wmlUpdaterBridge?.dispose?.();
   const notified = new Set(), requests = new Map();
   const validId = id => typeof id === 'string' && id.length <= 100 && /^[a-zA-Z0-9._-]+$/.test(id);
@@ -57,8 +57,8 @@
       }).catch(() => respond({ok: false}));
       return true;
     }
-    if (!['UPDATE_AVAILABLE','GAME_UPDATE_AVAILABLE'].includes(message?.type)) return;
-    const noticeId=message.type==='GAME_UPDATE_AVAILABLE'?'@game':message.modId;
+    if (!['UPDATE_AVAILABLE','GAME_UPDATE_AVAILABLE','HELPER_UPDATE_AVAILABLE'].includes(message?.type)) return;
+    const noticeId=message.type==='GAME_UPDATE_AVAILABLE'?'@game':message.type==='HELPER_UPDATE_AVAILABLE'?'@helper':message.modId;
     if(notified.has(noticeId)) return;
     notified.add(noticeId);
     let stack = document.getElementById('wml-browser-updater-notices');
@@ -69,7 +69,7 @@
     }
     const box = document.createElement('aside'); box.setAttribute('role', 'status');
     box.style.cssText = 'margin-bottom:10px;background:#192229;color:#fff;padding:18px;border:1px solid #d6b981;border-radius:8px;font:14px/1.6 sans-serif;box-shadow:0 5px 25px #0008';
-    const label = document.createElement('div'); label.textContent = `${message.type==='GAME_UPDATE_AVAILABLE'?'게임 본체':message.modName || message.modId} ${message.current} → ${message.version} 업데이트가 있습니다.`;
+    const label = document.createElement('div'); label.textContent = `${message.type==='GAME_UPDATE_AVAILABLE'?'게임 본체':message.type==='HELPER_UPDATE_AVAILABLE'?'모드 업데이트 도우미':message.modName || message.modId} ${message.current} → ${message.version} 업데이트가 있습니다.`;
     const open = document.createElement('button'); open.textContent = '업데이트 확인';
     const later = document.createElement('button'); later.textContent = '나중에';
     for (const button of [open, later]) button.style.cssText = 'margin:12px 8px 0 0;padding:7px 11px;cursor:pointer';
@@ -77,7 +77,7 @@
     later.onclick = () => box.remove(); box.append(label, open, later); stack.append(box);
   };
   chrome.runtime.onMessage.addListener(receive);
-  globalThis.__wmlUpdaterBridge={version:'0.7.3',dispose(){
+  globalThis.__wmlUpdaterBridge={version:'0.7.4',dispose(){
     clearInterval(timer); window.removeEventListener('message',bridge); chrome.runtime.onMessage.removeListener(receive);
     document.getElementById('wml-browser-updater-notices')?.remove();
   }};

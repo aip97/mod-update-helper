@@ -91,7 +91,7 @@ Write-Host '3. [모드 업데이트 도우미]의 [세부정보]를 엽니다.'
 Write-Host '4. [파일 URL에 대한 액세스 허용]을 켭니다.'
 Write-Host '5. 게임 탭을 열어 둔 채 확장 프로그램 아이콘을 누릅니다.'
 Write-Host '로컬 드라이브의 게임 폴더는 자동 연결됩니다. 다른 폴더를 쓰려면 도우미의 경로 변경을 선택하세요.'
-Write-Host '최초 로드와 권한 허용 후에는 서명된 새 버전을 자동으로 적용합니다. 업데이트 창을 닫으면 도우미만 다시 시작합니다.'
+Write-Host '새 도우미 버전이 있으면 알림을 표시합니다. 도우미 화면에서 업데이트 후 재시작을 눌러 적용하세요.'
 Write-Host '자세한 사용법은 복사된 폴더의 GUIDE.html을 열어 확인할 수 있습니다.'
 if (-not $NoLaunch) {
     Start-Process -FilePath 'explorer.exe' -ArgumentList ('"' + $target + '"')

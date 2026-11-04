@@ -135,6 +135,7 @@ async function clearGame(tabId) {
     await chrome.storage.session.remove('game-' + tabId);
     await chrome.storage.session.remove('opened-update-' + tabId);
     await chrome.storage.session.remove('notify-check-' + tabId);
+    await chrome.storage.session.remove('helper-check-' + tabId);
     const {lastGame} = await chrome.storage.session.get('lastGame');
     if (lastGame?.tabId === tabId) await chrome.storage.session.remove('lastGame');
   });
@@ -288,6 +289,21 @@ async function notifyUpdates(game) {
     }
   }
 }
+async function notifyHelperUpdate(game) {
+  if (!checkHelperUpdate) return;
+  const key='helper-check-'+game.tabId;
+  const first=await mutate(async () => {
+    const stored=await chrome.storage.session.get([key,'game-'+game.tabId]);
+    if(stored[key]===game.documentId || stored['game-'+game.tabId]?.documentId!==game.documentId) return false;
+    await chrome.storage.session.set({[key]:game.documentId});
+    return true;
+  });
+  if (!first) return;
+  await checkHelperUpdate();
+  const [{helperUpdateStatus:status},stored]=await Promise.all([chrome.storage.local.get('helperUpdateStatus'),chrome.storage.session.get('game-'+game.tabId)]);
+  if(status?.state!=='waiting' || !status.latest || stored['game-'+game.tabId]?.documentId!==game.documentId) return;
+  await chrome.tabs.sendMessage(game.tabId,{type:'HELPER_UPDATE_AVAILABLE',current:chrome.runtime.getManifest().version,version:status.latest},{documentId:game.documentId});
+}
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   (async () => {
     const ownUI = sender.url?.split('?')[0] === chrome.runtime.getURL('update.html');
@@ -298,10 +314,15 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       if (tab.url !== sender.url) throw fail('CONTEXT_CHANGED', '게임 탭이 변경되었습니다.');
       const game = await saveSnapshot(message, sender);
       notifyUpdates(game).catch(() => {});
+      notifyHelperUpdate(game).catch(() => {});
       return {ok: true};
     }
     if (message?.type === 'OPEN_UPDATER' && gameSender) { await openUI(sender.tab.id, message.modId); return {ok: true}; }
     if (!ownUI) throw fail('INVALID_SENDER', '확장 프로그램 화면에서만 요청할 수 있습니다.');
+    if (message?.type === 'CHECK_HELPER_UPDATE') {
+      if (!checkHelperUpdate) throw new Error('도우미 업데이트 확인을 사용할 수 없습니다.');
+      await checkHelperUpdate(); return {ok:true};
+    }
     if(message?.type==='GET_GAME_SOURCE' || message?.type==='CHECK_GAME_RELEASE') {
       const game=await connectGame(message.tabId);
       if(!game || message.documentId && game.documentId!==message.documentId) throw fail('CONTEXT_CHANGED','연결된 게임이 변경되었습니다. 목록을 새로 불러와 주세요.');
@@ -347,7 +368,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   })().then(respond, error => respond({ok: false, error: error.message, code: error.code || 'INVALID_REQUEST'}));
   return true;
 });
-startSelfUpdates();
+const checkHelperUpdate = startSelfUpdates();
 
 for (const event of [chrome.runtime.onInstalled,chrome.runtime.onStartup]) event?.addListener(() => { void connectGame().then(game => game && notifyUpdates(game)).catch(() => {}); });
 if(chrome.alarms?.onAlarm) {

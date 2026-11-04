@@ -23,6 +23,14 @@ let automaticRefreshPending = false, automaticRefreshRunning = false;
 const selectedUpdates = new Set();
 const jobs = [];
 const nativeRoots = new Set();
+$('self-update-check').onclick = async () => {
+  if (!selfUpdater) { $('self-update-status').textContent='도우미 업데이트 확인을 사용할 수 없습니다.'; return; }
+  const button=$('self-update-check'); button.disabled=true;
+  $('self-update-status').textContent='도우미 업데이트를 확인하고 있습니다.';
+  try { await message({type:'CHECK_HELPER_UPDATE'}); }
+  catch (err) { $('self-update-status').textContent=`도우미 확인 실패: ${err.message}`; }
+  finally { button.disabled=false; }
+};
 $('self-update-progress').addEventListener('cancel', event => event.preventDefault());
 $('self-update-apply').onclick = async () => {
   if (!selfUpdater || busy || diagnosing || approval || jobs.some(job => ['waiting','running'].includes(job.state))) {

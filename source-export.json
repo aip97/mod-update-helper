@@ -9,15 +9,15 @@
   },
   {
     "path": "GAME_UPDATE.md",
-    "sha256": "827946dd19fc0a20b2734cf88cc9a5b037beb0376b9e5f4bd6bd598c928a7b18"
+    "sha256": "2558e237368899901b15acb77706f1a5350caf892fb635fe2b9139f2865b62f7"
   },
   {
     "path": "GUIDE.html",
-    "sha256": "63e2fed4811e19697153c83513f8bf952ad898d499916849289e3061d274a71a"
+    "sha256": "fe46a1fdd5334db1a9ee1e771aeb95d83dbcc7f7913f9bfd7a3b8eda0f2fa4a2"
   },
   {
     "path": "GUIDE.template.html",
-    "sha256": "1ab02f0b31a242672ab8c5dd187f0893855c5a80bc0cdb8ec5de50738f31ae42"
+    "sha256": "8f5823cd934679f496e30d300e47de98c567a6adc4aac7933683748425b5faba"
   },
   {
     "path": "Install.cmd",
@@ -25,11 +25,11 @@
   },
   {
     "path": "README.md",
-    "sha256": "1937f66dc33de2050502cf44b6ba06c9d1567ccce1ae225efb325cc10856dc47"
+    "sha256": "853a0c048d8b6d1bdf2ce3b75799334849ab1594f68ec5efc365bd338a5a80e9"
   },
   {
     "path": "RELEASING.md",
-    "sha256": "c38719a2742ac5065d928b35402cfc76156918664636b82fafe6fa149ec7fe3b"
+    "sha256": "5a3a493ef60d31ad20ea3a71334333d8f5cff78b3356e242e202778f79b9fad0"
   },
   {
     "path": "THIRD_PARTY_NOTICES.md",
@@ -37,7 +37,7 @@
   },
   {
     "path": "USER_GUIDE.html",
-    "sha256": "80c7381c55a26f8a6ce45ae69a93738b3b289eb0b07dad0d68f3ef1c5e9cb27f"
+    "sha256": "575988bef572ff30fca31811d044588e586336ab0841cd22ef575707f5881bc2"
   },
   {
     "path": "build-guide.mjs",
@@ -45,7 +45,7 @@
   },
   {
     "path": "build-user-guide.mjs",
-    "sha256": "cac3e57ab0d6f136085f397d3f432b5a66a36771696d70aaae1631920be964bb"
+    "sha256": "3bf240e03f725dbb30e37cd14d58e3d1124a8357eebadf5503cc96819d47e75f"
   },
   {
     "path": "core.mjs",
@@ -117,7 +117,7 @@
   },
   {
     "path": "export-source.mjs",
-    "sha256": "78b3f0ed8cd6d25d55582f1dbb34d780b6c91fe6b3f8e5db6d780789db7a7844"
+    "sha256": "6a50903452f6fa5d6a2e12e33b58a71f81b48f7d62458056f3181aad54d52c67"
   },
   {
     "path": "folder-store.mjs",
@@ -125,7 +125,7 @@
   },
   {
     "path": "game-bridge.js",
-    "sha256": "7333300f93c89a1ffe780cd09d11ad4e2371b31c881563578e1771c79e2fb76b"
+    "sha256": "0b672d4e596cfe5f1b1ed84107e7c8c6ee2da342e0d3d487d5f6ae18d4a88395"
   },
   {
     "path": "game-compat.mjs",
@@ -153,7 +153,7 @@
   },
   {
     "path": "install.ps1",
-    "sha256": "d1934d83f5f0c14b57ba702100d603b1593da772e88f4f2d08bcba67eae6876f"
+    "sha256": "4af6d63fb710c9c35595ce8617ffe15b55b12834c828e7816b83f25e6fa81a87"
   },
   {
     "path": "installer-tool-test.ps1",
@@ -181,7 +181,7 @@
   },
   {
     "path": "manifest.json",
-    "sha256": "f9c15e584c5848a6c1161292feb83e3dcdcf34d7ed3f8313e0615a9319055822"
+    "sha256": "0c0656e6fabc18aa78eead3065a92144f38db493b62656ed6dc87f72ddcf0e5c"
   },
   {
     "path": "mod-names-ko.mjs",
@@ -233,7 +233,7 @@
   },
   {
     "path": "package.json",
-    "sha256": "f2c4d8520c94b7a6fee551f1326f70a6cb7dec3a5c224f28a0664a52641e4bab"
+    "sha256": "67972494e0253beaee79214415bc5ea97c23157f679363cae252137dea0c397c"
   },
   {
     "path": "package.mjs",
@@ -256,16 +256,20 @@
     "sha256": "9c203db3da1085088d2d63c6d5dce4acf00749ead3a073063abfb0f811678aa7"
   },
   {
+    "path": "self-update-schedule.test.mjs",
+    "sha256": "dcd191bc702f350eec105c09fca5325ec9f23e803450dba7240acb4a6aa374c8"
+  },
+  {
     "path": "self-update-ui.test.mjs",
-    "sha256": "f1a5779261f56907f9221a79bc14a4962aa18d18b22296f61207909e0f8bb60a"
+    "sha256": "736651a57f203bb2570877879f1e0a26d5c28c25d4b2401ca069bc2239785125"
   },
   {
     "path": "self-update-worker.test.mjs",
-    "sha256": "30e6f212c270f40830e1fff8f3cc091000c02547f973d3301f698b7a9d14a0fe"
+    "sha256": "d2e47996486c10e171ca5230a147b8d80ca469575648036ce4c0f42b726c44a6"
   },
   {
     "path": "self-update.mjs",
-    "sha256": "7f467df163ed6a0c2d98f72902b4353a8fe81cf219a0cbd78574bc9ab0b6e34e"
+    "sha256": "7243c086d4f7cac256c332fabf31ffbb14de2cb562ecd4c87358c3aeb45552c8"
   },
   {
     "path": "self-update.test.mjs",
@@ -293,7 +297,7 @@
   },
   {
     "path": "skills/wml-updater-integration/references/game-update.md",
-    "sha256": "827946dd19fc0a20b2734cf88cc9a5b037beb0376b9e5f4bd6bd598c928a7b18"
+    "sha256": "2558e237368899901b15acb77706f1a5350caf892fb635fe2b9139f2865b62f7"
   },
   {
     "path": "skills/wml-updater-integration/scripts/package-mod.py",
@@ -305,11 +309,11 @@
   },
   {
     "path": "update.html",
-    "sha256": "07c22faee42991701a775e5954a1fc6fb6d41b30150abb4bca414e2a947dbe55"
+    "sha256": "40a79e9ace72f22ac8d195e889582835a5270745eeb97db5ffa7908cf3b00bce"
   },
   {
     "path": "update.mjs",
-    "sha256": "b2a7e302dd61adf9c0d9294afbf79ef8697e5879417a3682f5b03d9c5cb79301"
+    "sha256": "983f871fe7d565bc4ebcd8bac5d98b792892ce42b9fff690621df8ab0b649003"
   },
   {
     "path": "vendor/cbor-x-1.6.4.mjs",
@@ -321,15 +325,19 @@
   },
   {
     "path": "wml-reader.js",
-    "sha256": "4a86a9947a4a08ce974940739e0c052044a7483e4bff19d5d1bd7f6569b42835"
+    "sha256": "efe9a492c45ce1c71d12b1c59b4a4502431325836715df71bcec4599b72e74e6"
   },
   {
     "path": "worker-notify.test.mjs",
-    "sha256": "666893c0e8723d82fdb122b6528c543a1984d1d0b2e4bde5a4e786803f39c8f5"
+    "sha256": "578e63c655c243aad177ea77fb9cd4ba82a583dd627548e65bb0868f32d3e4c9"
+  },
+  {
+    "path": "worker-self-update.test.mjs",
+    "sha256": "5547fc50ff152a8d0c04740abfc9675521b47ce8540696229c4421d42dff73df"
   },
   {
     "path": "worker.mjs",
-    "sha256": "02e2bcff0d8673b74e959c52479aeaeaf9bf6e421a2be3e94020749d28fcba21"
+    "sha256": "86de44947bc7020425b7fd274b019f81e778ba061db31f765eac57d3e684a7ba"
   },
   {
     "path": "zip-tools.mjs",
