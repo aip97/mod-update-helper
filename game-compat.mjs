@@ -39,7 +39,9 @@ export function parseGameRequirement(spec) {
   need(typeof spec === 'string' && spec.trim() && spec.length <= 256, '게임 호환 범위를 확인할 수 없습니다.');
   const gameSpec = spec.trim();
   if (gameSpec === '*') return { gameFamily: 'any', gameSpec };
-  const families = new Set(gameSpec.split(/\s+/).map(part => requirementPart(part).gameFamily));
+  const alternatives=gameSpec.split(/\s*\|\|\s*/);
+  need(alternatives.length<=20 && alternatives.every(part=>part.trim()), '게임 호환 범위를 확인할 수 없습니다.');
+  const families = new Set(alternatives.flatMap(branch=>branch.trim().split(/\s+/).map(part=>requirementPart(part).gameFamily)));
   need(families.size === 1, '서로 다른 게임 계열의 조건을 한 게임 범위에 혼합할 수 없습니다.');
   return { gameFamily: [...families][0], gameSpec };
 }
@@ -60,12 +62,12 @@ export function gameMatches(spec, version) {
   if (required.gameFamily === 'any') return true;
   if (required.gameFamily !== current.gameFamily) return false;
   const key = gameKey(version);
-  return required.gameSpec.split(/\s+/).every(part => {
+  return required.gameSpec.split(/\s*\|\|\s*/).some(branch=>branch.trim().split(/\s+/).every(part => {
     const { gameVersion, operator } = requirementPart(part);
     if (!gameVersion) return true;
     const other = gameKey(gameVersion);
     return operator === '>=' ? key >= other : operator === '<=' ? key <= other : operator === '>' ? key > other : operator === '<' ? key < other : key === other;
-  });
+  }));
 }
 
 export function supportsWmlVersion(wmlVersion, gameVersion) {

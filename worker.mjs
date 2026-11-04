@@ -1,15 +1,21 @@
 import {compareVersions, parseReleaseHTML, analyzeRelease, analyzeReleaseHTML, validateSnapshot, enrichMod, validateModId, validatePostURL, validateReleaseURL} from './core.mjs';
-import {findKioRelease} from './kio-api.mjs';
+import {findKioRelease, downloadKioApi} from './kio-api.mjs';
 import {startSelfUpdates} from './self-update.mjs';
 import {gameSource,findGameRelease} from './game-release.mjs';
-import {compareGameVersions} from './game-compat.mjs';
+import {compareGameVersions, gameMatches, parseGameRequirement} from './game-compat.mjs';
+import {getWikiSources,submitWikiMod} from './wiki-client.mjs';
+import {createWikiAuto} from './wiki-auto.mjs';
+import {inspectPackage} from './installer.mjs';
 async function passwordSettings() {
   const {kioDefaultPassword} = await chrome.storage.local.get('kioDefaultPassword');
   return {passwordConfigured:typeof kioDefaultPassword === 'string', defaultPassword:typeof kioDefaultPassword === 'string' ? kioDefaultPassword : ''};
 }
-async function settings() {
-  const {registrations = {}} = await chrome.storage.local.get('registrations');
-  return registrations;
+async function settings(family = 'wayward') {
+  const {registrations = {}, registrationsByFamily = {}} = await chrome.storage.local.get(['registrations','registrationsByFamily']);
+  return {...(family === 'wayward' ? registrations : {}), ...(registrationsByFamily[family] || {})};
+}
+function requireSettingsContext(game, context) {
+  if (context !== undefined && (!game || !context || context.documentId !== game.documentId || context.gameVersion !== game.gameVersion || context.wmlVersion !== game.wmlVersion)) throw fail('CONTEXT_CHANGED','게임 상태가 변경되었습니다. 활성 목록을 새로고침해 주세요.');
 }
 async function fetchPostHTML(postURL) {
   postURL = validatePostURL(postURL);
@@ -47,9 +53,10 @@ async function resolveCollection(post) {
     throw error;
   }
 }
-async function latest(modId, postURL, force = false) {
+const releaseKey = (game,modId) => `release-v2:${game.gameFamily}:${game.gameVersion}:${game.wmlVersion}:${modId}`;
+async function latest(modId, postURL, game, force = false) {
   validateModId(modId); postURL = validatePostURL(postURL);
-  const key = 'release-' + modId;
+  const key = releaseKey(game,modId);
   const stored = await chrome.storage.local.get(key), cached = stored[key];
   if (!force && cached?.postURL === postURL && Date.now() - cached.checkedAt < 3600000) return cached;
   const release = await resolveCollection(parseReleaseHTML(await fetchPostHTML(postURL), {modId, postURL}));
@@ -117,17 +124,65 @@ async function diagnosePost(modId, postURL) {
 const fail = (code, message) => Object.assign(new Error(message), {code});
 let writes = Promise.resolve();
 function mutate(fn) { const result = writes.then(fn); writes = result.catch(() => {}); return result; }
-async function openUI(tabId, modId) {
+let wikiRefresh, wikiRetryAt = 0;
+async function wikiSources(ids) {
+  const unique = [...new Set(ids.map(validateModId))];
+  if (!unique.length) return {rows:[],changed:false};
+  const cache = (await chrome.storage.local.get('wikiSourcesCache')).wikiSourcesCache;
+  if (cache?.version === 2 && cache.entries && Number.isFinite(cache.at) && Date.now()-cache.at >= 0 && Date.now()-cache.at < 3600000) {
+    return {rows:unique.flatMap(id => Array.isArray(cache.entries[id]) ? cache.entries[id].map(entry => ({mod_id:id,...entry})) : []),changed:false};
+  }
+  if (wikiRefresh) { await wikiRefresh; return wikiSources(ids); }
+  if (Date.now() < wikiRetryAt) throw new Error('위키 연결을 잠시 후 다시 시도합니다.');
+  wikiRefresh = (async () => {
+    const found = Object.create(null), invalid = new Set();
+    for (const row of await getWikiSources()) {
+      try {
+        const id=validateModId(row.mod_id), url=validatePostURL(row.post_url);
+        if (typeof row.game_spec !== 'string' || !Array.isArray(row.wml_versions) || row.wml_versions.length > 20) continue;
+        const family=row.game_spec === '' ? 'wayward' : parseGameRequirement(row.game_spec).gameFamily;
+        if (row.game_family !== family || new Set(row.wml_versions).size !== row.wml_versions.length) continue;
+        for (const version of row.wml_versions) compareVersions(version,'0.0.0');
+        const key=family+'\n'+id;
+        if (!found[id]) found[id]=[];
+        if (found[id].some(entry => entry.game_family === family)) { found[id]=found[id].filter(entry => entry.game_family !== family); invalid.add(key); }
+        else if (!invalid.has(key)) found[id].push({game_family:family,post_url:url,game_spec:row.game_spec,wml_versions:row.wml_versions});
+      } catch {}
+    }
+    await chrome.storage.local.set({wikiSourcesCache:{version:2,at:Date.now(),entries:found}});
+  })();
+  try { await wikiRefresh; } catch (error) { wikiRetryAt = Date.now()+60000; throw error; } finally { wikiRefresh = null; }
+  return {...await wikiSources(ids),changed:true};
+}
+const queueWikiAuto = createWikiAuto({
+  storage:chrome.storage.local, sources:async ids => (await wikiSources(ids)).rows,
+  diagnose:diagnosePost, download:downloadKioApi, inspect:inspectPackage, submit:submitWikiMod,
+  password:async () => {const saved=await passwordSettings();return saved.passwordConfigured ? saved.defaultPassword : undefined;},
+  current:async tabId => (await chrome.storage.session.get('game-'+tabId))['game-'+tabId], mutate,
+  retry:async (game,when) => {
+    if (!chrome.alarms?.create) return;
+    await mutate(async () => {
+      const key='wiki-auto-retry-'+game.tabId;
+      const [{wikiAutoSubmit},stored] = await Promise.all([chrome.storage.local.get('wikiAutoSubmit'),chrome.storage.session.get('game-'+game.tabId)]);
+      if (wikiAutoSubmit !== true || stored['game-'+game.tabId]?.documentId !== game.documentId) return;
+      await chrome.storage.session.set({[key]:game.documentId});
+      const previous = await chrome.alarms.get(key);
+      if (!previous || previous.scheduledTime > when) await chrome.alarms.create(key,{when});
+    });
+  },
+});
+async function openUI(tabId, modId, view) {
   const query = new URLSearchParams();
   if (Number.isInteger(tabId)) query.set('tabId', tabId);
   if (modId) query.set('modId', validateModId(modId));
+  if (view === 'game') query.set('view', 'game');
   const base = chrome.runtime.getURL('update.html');
   const existing = (await chrome.tabs.query({})).find(tab => tab.url?.split('?')[0] === base && [null, String(tabId)].includes(new URL(tab.url).searchParams.get('tabId')));
   const opened = existing
     ? await chrome.tabs.update(existing.id, {active: true, ...(!new URL(existing.url).searchParams.has('tabId') ? {url: base + '?' + query} : {})})
     : await chrome.tabs.create({url: base + '?' + query});
   if (Number.isInteger(opened?.windowId)) await chrome.windows.update(opened.windowId, {focused: true});
-  if (existing) chrome.runtime.sendMessage({type: 'UPDATES_AVAILABLE', tabId}).catch(() => {});
+  if (existing) chrome.runtime.sendMessage({type: view === 'game' ? 'OPEN_GAME_UPDATE' : 'UPDATES_AVAILABLE', tabId}).catch(() => {});
 }
 chrome.action.onClicked.addListener(tab => openUI(tab.id));
 async function clearGame(tabId) {
@@ -136,6 +191,8 @@ async function clearGame(tabId) {
     await chrome.storage.session.remove('opened-update-' + tabId);
     await chrome.storage.session.remove('notify-check-' + tabId);
     await chrome.storage.session.remove('helper-check-' + tabId);
+    await chrome.storage.session.remove('wiki-auto-retry-' + tabId);
+    if (chrome.alarms?.clear) await chrome.alarms.clear('wiki-auto-retry-' + tabId);
     const {lastGame} = await chrome.storage.session.get('lastGame');
     if (lastGame?.tabId === tabId) await chrome.storage.session.remove('lastGame');
   });
@@ -152,7 +209,7 @@ function metadata(values) {
     try { validateModId(value.modId); } catch { continue; }
     if (value.protocol === 2 && typeof value.active !== 'boolean') continue;
     if (result[value.modId]?.protocol === 2 && value.protocol === 1) continue;
-    const item = {protocol: value.protocol};
+    const item = {protocol: value.protocol, ...(value.protocol === 2 ? {active:value.active} : {})};
     if (typeof value.modName === 'string' && value.modName.length <= 100 && !/[\x00-\x1f]/.test(value.modName)) item.modName = value.modName;
     if (value.postURL !== undefined) item.postURL = typeof value.postURL === 'string' && value.postURL.length <= 2048 ? value.postURL : '';
     result[value.modId] = item;
@@ -160,11 +217,23 @@ function metadata(values) {
   return result;
 }
 async function decorate(game) {
-  const registered = await settings();
-  const cached = await chrome.storage.local.get(game.mods.map(mod => 'release-' + mod.modId));
+  const registered = await settings(game.gameFamily);
+  const cached = await chrome.storage.local.get(['wikiSourcesCache',...game.mods.map(mod => releaseKey(game,mod.modId))]);
   return {...game, mods: game.mods.map(item => {
-    const mod = enrichMod(item, game.api?.[item.modId], registered[item.modId]), release = cached['release-' + item.modId];
-    if (mod.supported && release?.modId === mod.modId && release.postURL === mod.postURL && Number.isFinite(release.checkedAt) && Date.now() - release.checkedAt >= 0 && Date.now() - release.checkedAt < 3600000) {
+    const mod = enrichMod(item, game.api?.[item.modId], registered[item.modId]), release = cached[releaseKey(game,item.modId)];
+    const wiki = cached.wikiSourcesCache;
+    if (!mod.postURL && wiki?.version === 2 && wiki.entries && Object.hasOwn(wiki.entries,item.modId) && Date.now()-wiki.at >= 0 && Date.now()-wiki.at < 3600000) {
+      try {
+        const entries=Array.isArray(wiki.entries[item.modId]) ? wiki.entries[item.modId] : [];
+        const compatible=entries.filter(entry => (entry.game_family === game.gameFamily || entry.game_family === 'any') &&
+          (entry.game_spec === '' ? game.gameFamily === 'wayward' : gameMatches(entry.game_spec,game.gameVersion)) &&
+          (!entry.wml_versions.length || entry.wml_versions.includes(game.wmlVersion)));
+        const exact=compatible.filter(entry=>entry.game_family === game.gameFamily), common=compatible.filter(entry=>entry.game_family === 'any');
+        const chosen=exact.length === 1 ? exact[0] : exact.length === 0 && common.length === 1 ? common[0] : null;
+        if (chosen) {mod.postURL=validatePostURL(chosen.post_url);mod.source='wiki';}
+      } catch {}
+    }
+    if (mod.supported && release?.modId === mod.modId && release.postURL === mod.postURL && Number.isFinite(release.checkedAt) && release.checkedAt >= (registered[item.modId]?.cacheClearAt || 0) && Date.now() - release.checkedAt >= 0 && Date.now() - release.checkedAt < 3600000) {
       try {
         compareVersions(release.version, mod.modVersion);
         mod.cachedRelease = {modId: release.modId, version: release.version, fileName:release.fileName, url: validateReleaseURL(release.url), postURL: release.postURL, checkedAt: release.checkedAt};
@@ -240,7 +309,7 @@ async function checkMod(message) {
   if (!mod.supported) throw fail('UNSUPPORTED_VERSION', mod.reason);
   if (!mod.postURL) throw fail('MISSING_POST_URL', '모드의 Kone 게시글 주소를 등록해 주세요.');
   let release;
-  try { release = await latest(mod.modId, mod.postURL, true); }
+  try { release = await latest(mod.modId, mod.postURL, game, true); }
   catch (error) { if (!error.code) error.code = /네트워크|연결|시간|확인 실패/.test(error.message) ? 'NETWORK_ERROR' : 'POST_FORMAT_INVALID'; throw error; }
   if (release.passwordRequired) return {state:'password_required',message:'비밀번호를 입력하면 컬렉션의 모드 버전을 확인합니다.',release};
   const comparison = compareVersions(release.version, mod.modVersion);
@@ -255,12 +324,12 @@ async function notifyUpdates(game) {
         const key = 'notify-check-' + game.tabId, stored = await chrome.storage.session.get([key, 'game-' + game.tabId]);
         if (stored['game-' + game.tabId]?.documentId !== game.documentId) return false;
         const checks = stored[key] || {}, previous = checks[mod.modId];
-        if (previous?.documentId === game.documentId && previous.postURL === mod.postURL && previous.modVersion === mod.modVersion && Date.now() - previous.checkedAt < 60000) return false;
-        await chrome.storage.session.set({[key]: {...checks, [mod.modId]: {documentId: game.documentId, postURL: mod.postURL, modVersion: mod.modVersion, checkedAt: Date.now()}}});
+        if (previous?.documentId === game.documentId && previous.postURL === mod.postURL && previous.modVersion === mod.modVersion && previous.gameVersion === game.gameVersion && previous.wmlVersion === game.wmlVersion && Date.now() - previous.checkedAt < 60000) return false;
+        await chrome.storage.session.set({[key]: {...checks, [mod.modId]: {documentId: game.documentId, postURL: mod.postURL, modVersion: mod.modVersion, gameVersion:game.gameVersion, wmlVersion:game.wmlVersion, checkedAt: Date.now()}}});
         return true;
       });
       if (!check) continue;
-      const release = await latest(mod.modId, mod.postURL, true);
+      const release = await latest(mod.modId, mod.postURL, game, true);
       if (release.passwordRequired) continue;
       checked = true;
       const current = (await chrome.storage.session.get('game-' + game.tabId))['game-' + game.tabId];
@@ -315,10 +384,19 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       const game = await saveSnapshot(message, sender);
       notifyUpdates(game).catch(() => {});
       notifyHelperUpdate(game).catch(() => {});
+      wikiSources(game.mods.filter(mod => mod.supported).map(mod => mod.modId)).then(async ({changed}) => {
+        if (changed && (await chrome.storage.session.get('game-'+game.tabId))['game-'+game.tabId]?.documentId === game.documentId) await notifyUpdates(game);
+      }).catch(() => {});
+      queueWikiAuto(game);
       return {ok: true};
     }
-    if (message?.type === 'OPEN_UPDATER' && gameSender) { await openUI(sender.tab.id, message.modId); return {ok: true}; }
+    if (message?.type === 'OPEN_UPDATER' && gameSender) { await openUI(sender.tab.id, message.modId, message.view === 'game' ? 'game' : undefined); return {ok: true}; }
     if (!ownUI) throw fail('INVALID_SENDER', '확장 프로그램 화면에서만 요청할 수 있습니다.');
+    if (message?.type === 'SCAN_WIKI_CANDIDATES') {
+      const game = await connectGame(message.tabId);
+      if (!game || message.documentId && game.documentId !== message.documentId) throw fail('CONTEXT_CHANGED','연결된 게임이 변경되었습니다. 목록을 새로 불러와 주세요.');
+      queueWikiAuto(game); return {ok:true,queued:true};
+    }
     if (message?.type === 'CHECK_HELPER_UPDATE') {
       if (!checkHelperUpdate) throw new Error('도우미 업데이트 확인을 사용할 수 없습니다.');
       await checkHelperUpdate(); return {ok:true};
@@ -339,7 +417,12 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       return {ok:true,diagnostic:await diagnosePost(message.modId,message.postURL)};
     }
     if (message?.type === 'GET_GAME') return {ok: true, game: await connectGame(message.tabId)};
-    if (message?.type === 'GET_SETTINGS') return {ok: true, settings: await settings(), ...await passwordSettings()};
+    if (message?.type === 'GET_SETTINGS') {
+      const game = Number.isInteger(message.tabId) ? await freshGame(message.tabId) : null;
+      if (Number.isInteger(message.tabId) && !game) throw fail('CONTEXT_CHANGED','게임 탭을 확인하지 못했습니다.');
+      requireSettingsContext(game,message.gameContext);
+      return {ok: true, settings: await settings(game?.gameFamily), ...await passwordSettings()};
+    }
     if (message?.type === 'SET_DEFAULT_PASSWORD') {
       if (typeof message.password !== 'string' || message.password.length > 256) throw fail('INVALID_REQUEST','비밀번호는 256자 이내로 입력하세요.');
       await chrome.storage.local.set({kioDefaultPassword:message.password});
@@ -348,8 +431,17 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     if (message?.type === 'SAVE_SETTINGS') {
       const modId = validateModId(message.modId);
       let postURL; try { postURL = validatePostURL(message.postURL); } catch (error) { throw fail('POST_URL_INVALID', error.message); }
-      await mutate(async () => { const registrations = await settings(); registrations[modId] = {postURL}; await chrome.storage.local.set({registrations}); await chrome.storage.local.remove('release-' + modId); });
-      return {ok: true, settings: await settings()};
+      const game = Number.isInteger(message.tabId) ? await freshGame(message.tabId) : null;
+      if (Number.isInteger(message.tabId) && !game) throw fail('CONTEXT_CHANGED','게임 탭을 확인하지 못했습니다.');
+      requireSettingsContext(game,message.gameContext);
+      if (game && !game.mods.some(mod => mod.modId === modId)) throw fail('MOD_INACTIVE','현재 활성 모드가 아닙니다.');
+      const family=game?.gameFamily || 'wayward';
+      await mutate(async () => {
+        const {registrationsByFamily = {}} = await chrome.storage.local.get('registrationsByFamily');
+        registrationsByFamily[family] = {...registrationsByFamily[family], [modId]:{postURL,cacheClearAt:Date.now()}};
+        await chrome.storage.local.set({registrationsByFamily}); await chrome.storage.local.remove('release-' + modId);
+      });
+      return {ok: true, settings: await settings(family)};
     }
     if (message?.type === 'VERIFY_ACTIVE') {
       const modId = validateModId(message.modId);
@@ -374,6 +466,17 @@ for (const event of [chrome.runtime.onInstalled,chrome.runtime.onStartup]) event
 if(chrome.alarms?.onAlarm) {
   void chrome.alarms.create('game-update-check',{periodInMinutes:60});
   chrome.alarms.onAlarm.addListener(alarm=>{
+    const retry = /^wiki-auto-retry-(\d+)$/.exec(alarm.name);
+    if (retry) {
+      void (async()=>{
+        const tabId=Number(retry[1]), key='wiki-auto-retry-'+tabId;
+        const values=await chrome.storage.session.get([key,'game-'+tabId]);
+        await chrome.storage.session.remove(key);
+        const game=values['game-'+tabId];
+        if(game && game.documentId===values[key]) queueWikiAuto(game);
+      })().catch(()=>{});
+      return;
+    }
     if(alarm.name!=='game-update-check') return;
     void (async()=>{
       const stored=await chrome.storage.session.get(null);

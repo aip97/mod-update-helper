@@ -16,6 +16,14 @@ assert.equal(gameMatches('>=2026-11-01','2026-11-01-pre2'), false);
 assert.equal(gameMatches('>=2026-11-01-pre2 <2026-11-01','2026-11-01-pre3'), true);
 assert.equal(gameMatches('wayward >=2026-10-04 <=2026-11-01','2026-11-01'), true);
 assert.equal(gameMatches('*','faith-3.3.2'), true);
+assert.equal(gameMatches('faith-3.3.2 || faith-3.4.0','faith-3.4.0'), true);
+assert.equal(gameMatches('faith-3.3.2 || faith-3.4.0','faith-3.5.0'), false);
+assert.equal(gameMatches('2026-10-04 || 2026-11-01','2026-11-01'), true);
+assert.equal(gameMatches('2026-10-04 || 2026-11-01','faith-3.3.2'), false);
+assert.equal(gameMatches('faith>=3.0.0 <faith-3.4.0 || faith-4.0.0','faith-3.3.2'), true);
+assert.equal(gameMatches('faith>=3.0.0 <faith-3.4.0 || faith-4.0.0','faith-4.0.0'), true);
+assert.equal(gameMatches('faith>=3.0.0 <faith-3.4.0 || faith-4.0.0','faith-3.4.0'), false);
+for(const spec of ['faith-3.3.2 || overtime-1.0.0','faith-3.3.2 ||','|| faith-3.3.2','* || faith-3.3.2']) assert.throws(()=>parseGameRequirement(spec));
 assert.equal(gameMatches('*','2026-11-01'), true);
 for (const spec of ['',null,'faith wayward','>=2026-11-01 faith','* faith','faith>=03.3.2','faith^3.3.2','>=2026-02-30','>=2026-11-01 || faith','any','wayward-1.2.3','harbor-01','faith overtime']) assert.throws(() => parseGameRequirement(spec));
 for (const version of ['faith-3.3.2','overtime-1.0.0','harbor-1.2.3','2026-11-01']) {

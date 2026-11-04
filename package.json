@@ -1,12 +1,12 @@
 {
   "name": "mod-update-helper",
-  "version": "0.7.4",
+  "version": "0.8.0",
   "private": true,
   "type": "module",
   "engines": {"node": ">=22"},
   "scripts": {
-    "test": "node --test core.test.mjs installer.test.mjs zip-unicode.test.mjs kio-api.test.mjs game-compat.test.mjs game-update.test.mjs post-diagnostics.test.mjs worker-notify.test.mjs worker-self-update.test.mjs self-update-worker.test.mjs self-update-schedule.test.mjs self-update-ui.test.mjs defender-scan.test.mjs examples-test.mjs examples/package-mod.test.mjs",
-    "test:windows": "node --test native-host.test.mjs native-defender.test.mjs self-update.test.mjs package.test.mjs",
+    "test": "node --test core.test.mjs installer.test.mjs zip-unicode.test.mjs kio-api.test.mjs game-compat.test.mjs game-update.test.mjs post-diagnostics.test.mjs worker-notify.test.mjs worker-self-update.test.mjs self-update-worker.test.mjs self-update-schedule.test.mjs self-update-ui.test.mjs defender-scan.test.mjs wiki-client.test.mjs wiki-auto.test.mjs wiki-worker.test.mjs wiki-install.test.mjs examples-test.mjs examples/package-mod.test.mjs",
+    "test:windows": "node --test native-host.test.mjs native-defender.test.mjs self-update.test.mjs package.test.mjs export-source.test.mjs",
     "package": "node package.mjs",
     "export": "node export-source.mjs"
   }

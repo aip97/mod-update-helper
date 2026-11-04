@@ -35,6 +35,24 @@ export async function connectNativeGameFolder(gameURL) {
     if (typeof name !== 'string' || !name || name === '.' || name === '..' || /[\\/]/.test(name)) throw new TypeError('파일 이름이 올바르지 않습니다.');
     return path ? `${path}/${name}` : name;
   };
+  const createNewFile = async (path, bytes) => {
+    if (!(bytes instanceof Uint8Array) || bytes.byteLength > 16 * 1024 * 1024) throw new Error('신규 파일 크기가 허용 범위를 벗어났습니다.');
+    const {token} = await request('begin-new', {path});
+    try {
+      for (let offset = 0; offset < bytes.length; offset += CHUNK) {
+        const chunk = bytes.subarray(offset, offset + CHUNK); let binary = '';
+        for (let at = 0; at < chunk.length; at += 8192) binary += String.fromCharCode(...chunk.subarray(at, at + 8192));
+        await request('chunk', {token, data:btoa(binary)});
+      }
+      await request('commit', {token});
+    } catch (error) { await request('abort', {token}).catch(() => {}); throw error; }
+  };
+  const beginNewMod = async modId => {
+    const {token,stage} = await request('new-mod-begin', {modId});
+    const prefix = `.wml-mod-updater-backups/${modId}/.wiki-stage-`;
+    if (typeof token !== 'string' || typeof stage !== 'string' || !stage.startsWith(prefix) || !/^[a-f0-9]{32}$/.test(stage.slice(prefix.length))) throw new Error('모드 설치 준비 경로를 확인하지 못했습니다.');
+    return {stage, publish:()=>request('new-mod-publish',{token}), abort:()=>request('new-mod-abort',{token})};
+  };
   const fileData = (path, info, start = 0, end = info.size) => ({
     size: end - start,
     slice(from = 0, to = end - start) {
@@ -98,7 +116,7 @@ export async function connectNativeGameFolder(gameURL) {
   });
   try {
     const game = await request('connect', {url: url.href});
-    return {...entry('', 'directory'), name:game.name, gameFile:game.gameFile, path:game.path, disconnect,
+    return {...entry('', 'directory'), name:game.name, gameFile:game.gameFile, path:game.path, disconnect, createNewFile, beginNewMod,
       authorizeGameUpdate:(paths,backupPath)=>request('game-authorize',{paths,backupPath}),
       armGameUpdate:()=>request('game-arm'),finishGameUpdate:()=>request('game-finish')};
   } catch (error) { disconnect(); throw error; }

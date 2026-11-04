@@ -24,6 +24,7 @@ globalThis.chrome = {
 };
 const post2 = POST_URL.replace('d7dNsfio5zS0D3neJOhkeb', 'abcdefghijklmnopqrstuv');
 globalThis.fetch = async url => {
+  if(url.startsWith('https://bxcptogtnylktxodiqyn.supabase.co/')) return new Response('[]',{headers:{'content-type':'application/json'}});
   if(url.startsWith('https://api.kio.ac/')) return new Response(encoder.encode(url.endsWith('/directory/get') ? {files:['first-mod','second-mod'].map(id=>({name:id+' 1.1.0.zip',size:100,id:new Uint8Array(16)}))} : {root:new Uint8Array(16),token:'fixture',segment_size:100}),{headers:{'content-type':'application/cbor'}});
   fetched.push(url);
   if (pauseFetch) await pauseFetch;
@@ -41,7 +42,7 @@ const tick = () => new Promise(resolve => setTimeout(resolve, 10));
 async function waitFor(check) { for (let i = 0; i < 100; i++) { if (check()) return; await tick(); } assert.ok(check(), 'notification did not complete'); }
 async function nextDocument() { navigate(1, {status: 'loading'}); await tick(); documentId += '-next'; }
 
-for (const api of apis) local.data['release-' + api.modId] = {modId: api.modId, version: '1.0.0', url: 'https://kio.ac/c/abcdefghijklmnopqrstuv', postURL: api.postURL, checkedAt: Date.now()};
+for (const api of apis) local.data['release-v2:wayward:2026-11-01:0.9.4:' + api.modId] = {modId: api.modId, version: '1.0.0', url: 'https://kio.ac/c/abcdefghijklmnopqrstuv', postURL: api.postURL, checkedAt: Date.now()};
 let finishInitial; pauseFetch = new Promise(resolve => { finishInitial = resolve; });
 await Promise.all([announce(), announce(), announce()]);
 await waitFor(() => fetched.length === 2);
@@ -66,7 +67,7 @@ assert.deepEqual(broadcasts.at(-1), {type: 'UPDATES_AVAILABLE', tabId: 1}, 'reus
 await nextDocument(); await announce([]); await tick();
 assert.equal(activated.length, 1, 'no URL must not open an updater');
 await session.remove('opened-update-1');
-await local.remove('release-first-mod'); await local.remove('release-second-mod');
+await local.remove('release-v2:wayward:2026-11-01:0.9.4:first-mod'); await local.remove('release-v2:wayward:2026-11-01:0.9.4:second-mod');
 deny = true; await announce(); await tick();
 assert.equal(activated.length, 1, 'login failure must not open an updater');
 
@@ -81,5 +82,10 @@ await announce(); await tick();
 await nextDocument(); resume(); await tick();
 assert.equal(activated.length, 1, 'a release result for an old game document must not open an updater');
 assert.equal(opened.length, 1);
+assert.equal((await send({type:'OPEN_UPDATER',view:'game'})).ok,true);
+assert.deepEqual(broadcasts.at(-1),{type:'OPEN_GAME_UPDATE',tabId:1},'an existing updater opens the game tab without reloading');
+opened.length=0;
+assert.equal((await send({type:'OPEN_UPDATER',view:'game'})).ok,true);
+assert.equal(new URL(opened[0].url).searchParams.get('view'),'game','a newly opened updater selects the game tab');
 delete globalThis.chrome;
 console.log('Startup update screen: coalesced newer mods, one open per document, existing-tab reuse, no URL/login/stale-document suppression: OK');

@@ -38,6 +38,7 @@ export function initGameUpdater({message,askPassword,getPassword,isBusy,setBusy,
   $('game-edition').onchange=()=>{release=null;status('배포판을 선택했습니다. 새 버전을 확인하세요.');refresh();};
   const checkPost=async(diagnose=false)=>{
     if(isBusy()) return;setBusy(true);release=null;status('게임 배포 게시글과 파일을 확인하고 있습니다…');
+    $('game-diagnostic-guidance').hidden=!diagnose;
     try {
       if(!await check(true)) status('게임 버전 확인을 취소했습니다.');
       else if(diagnose) {
@@ -74,7 +75,7 @@ export function initGameUpdater({message,askPassword,getPassword,isBusy,setBusy,
       }
       const openTabs=await tabs();
       prepared={root,current,pkg,running,openTabs};root=null;
-      $('game-confirm-description').textContent=`${current.gameVersion} → ${pkg.gameVersion} · ${target.label}\n경로: ${prepared.root.path}\n기존 HTML: ${current.gameFile} (파일명 유지)\n교체 ${pkg.files.length}개 · 보존 ${pkg.skipped.length}개 · 같은 폴더의 HTML 탭 ${openTabs.length}개 종료\n${warnings.length?'새 버전에서 호환되지 않거나 호환 정보를 확인하지 못한 활성 모드: '+warnings.join(', '):'활성 모드의 게임·WML 선언 확인 완료'}`;
+      $('game-confirm-description').textContent=`${current.gameVersion} → ${pkg.gameVersion} · ${target.label}\n경로: ${prepared.root.path}\n기존 HTML: ${current.gameFile} (파일명 유지)\n교체 ${pkg.files.length}개 · 보존 ${pkg.skipped.length}개 · 같은 폴더의 HTML 탭 ${openTabs.length}개 종료\n${warnings.length?'새 버전에서 호환되지 않거나 호환 정보를 확인하지 못한 활성 모드: '+warnings.join(', '):'활성 모드의 게임·WML 선언은 일치합니다. 실제 충돌 여부는 확인할 수 없습니다.'}`;
       $('game-saved').checked=false;$('game-install-confirm').disabled=true;
       $('game-confirm').returnValue='cancel';$('game-confirm').showModal();
       status('다운로드·검사를 마쳤습니다. 게임을 저장하고 설치를 확인해 주세요.');

@@ -8,8 +8,9 @@ import {MOD_NAMES_KO} from './mod-names-ko.mjs';
 import {scanDownloadedZip} from './defender-scan.mjs';
 import {holdUpdaterWindow} from './self-update.mjs';
 import {initGameUpdater} from './game-update-ui.mjs';
+import {initWikiUI} from './wiki-ui.mjs';
 const selfUpdater=await holdUpdaterWindow();
-let gameUpdater;
+let gameUpdater, wikiUI;
 const $ = id => document.getElementById(id);
 let defaultPassword = '', passwordConfigured = false;
 let game, release, root, installed, settings = {}, busy = false, approval = null, generation = 0;
@@ -63,7 +64,7 @@ const gameFile = current => decodeURIComponent(new URL(current.url).pathname.spl
 const gameDescription = info => `${gameFamilyLabel(info.gameFamily)} · WML ${info.wmlVersion} · HTML ${info.htmlVersion || info.gameVersion}`;
 const currentMod = () => game?.mods.find(mod => mod.modId === selectedId);
 const sourceURL = mod => mod?.apiPostURL || settings[mod?.modId]?.postURL || mod?.postURL || '';
-const sourceLabel = mod => mod?.apiPostURL ? 'API 주소 우선' : sourceURL(mod) ? '수동 등록' : '주소 미등록';
+const sourceLabel = mod => mod?.apiPostURL ? 'API 주소 우선' : settings[mod?.modId]?.postURL ? '수동 등록' : mod?.source === 'wiki' ? '위키 등록' : sourceURL(mod) ? '수동 등록' : '주소 미등록';
 const pendingMod = modId => jobs.some(job => ['waiting','running'].includes(job.state) && job.approved.modId === modId);
 function useCachedReleases(mods, preserveCompleted = false) {
   for (const mod of mods) {
@@ -89,37 +90,42 @@ async function refreshAutomaticUpdates() {
     if (busy || diagnosing || approval || jobs.some(job => ['waiting','running'].includes(job.state))) { automaticRefreshPending = true; return; }
     if (fresh?.tabId !== game.tabId || fresh.url !== game.url) return;
     const sameDocument = fresh.documentId === game.documentId;
+    const sameGame = fresh.gameFamily === game.gameFamily && fresh.gameVersion === game.gameVersion && fresh.wmlVersion === game.wmlVersion;
     const sameMods = fresh.mods.length === game.mods.length && fresh.mods.every(mod => game.mods.some(current => current.modId === mod.modId && current.modVersion === mod.modVersion && sourceURL(current) === sourceURL(mod)));
-    if (!sameDocument || !sameMods) {
+    if (!sameDocument || !sameGame || !sameMods) {
       await loadActive();
-      if (sameDocument && game) useCachedReleases(game.mods, true);
-      showTab('updates'); return;
+      if (sameDocument && sameGame && game) useCachedReleases(game.mods, true);
+      if (!['game','wiki'].some(tab=>$(`tab-${tab}`).getAttribute('aria-selected')==='true')) showTab('updates'); return;
     }
     useCachedReleases(fresh.mods.filter(mod => game.mods.some(current => current.modId === mod.modId && current.modVersion === mod.modVersion && sourceURL(current) === sourceURL(mod))), true);
-    showTab('updates');
+    if (!['game','wiki'].some(tab=>$(`tab-${tab}`).getAttribute('aria-selected')==='true')) showTab('updates');
   } catch {} finally { automaticRefreshRunning = false; refreshButtons(); }
 }
 chrome.runtime.onMessage?.addListener((notice, sender) => {
-  if (sender.id !== chrome.runtime.id || notice?.type !== 'UPDATES_AVAILABLE' || notice.tabId !== game?.tabId) return;
-  automaticRefreshPending = true; void refreshAutomaticUpdates();
+  const queryTab = new URL(location.href).searchParams.get('tabId');
+  if (sender.id !== chrome.runtime.id || (notice?.tabId !== game?.tabId && String(notice?.tabId) !== queryTab)) return;
+  if (notice?.type === 'OPEN_GAME_UPDATE') showTab('game');
+  else if (notice?.type === 'UPDATES_AVAILABLE') { automaticRefreshPending = true; void refreshAutomaticUpdates(); }
 });
 const readyMods = () => (game?.mods || []).filter(mod => {
   const checked = checks.get(mod.modId);
   return mod.supported !== false && checked?.release && checked.release.postURL === sourceURL(mod) && compareVersions(checked.release.version, mod.modVersion) > 0 && !pendingMod(mod.modId);
 });
+const tabNames = ['updates','active','settings','game','wiki'];
 function showTab(name, focus = false) {
-  for (const tab of ['updates','active','settings']) {
+  for (const tab of tabNames) {
     const active = tab === name;
     $(`tab-${tab}`).setAttribute('aria-selected', String(active)); $(`tab-${tab}`).tabIndex = active ? 0 : -1;
     $(`panel-${tab}`).hidden = !active;
   }
   if (focus) $(`tab-${name}`).focus();
+  if (name === 'wiki') $('tab-wiki').scrollIntoView({block:'nearest',inline:'nearest'});
+  if (name === 'wiki') void wikiUI?.load();
 }
-const tabNames = ['updates','active','settings'];
 for (const [index,name] of tabNames.entries()) {
   $(`tab-${name}`).onclick = () => showTab(name);
   $(`tab-${name}`).onkeydown = event => {
-    const next = event.key === 'ArrowRight' ? (index + 1) % 3 : event.key === 'ArrowLeft' ? (index + 2) % 3 : event.key === 'Home' ? 0 : event.key === 'End' ? 2 : -1;
+    const next = event.key === 'ArrowRight' ? (index + 1) % tabNames.length : event.key === 'ArrowLeft' ? (index + tabNames.length - 1) % tabNames.length : event.key === 'Home' ? 0 : event.key === 'End' ? tabNames.length - 1 : -1;
     if (next >= 0) { event.preventDefault(); showTab(tabNames[next], true); }
   };
 }
@@ -127,11 +133,31 @@ function renderModOptions() {
   const query = searchText($('settings-search').value.trim());
   const mods = game?.mods || [], matches = mods.filter(mod => matchesSearch(mod, query));
   const current = currentMod();
+  const focusedId = document.activeElement?.closest('#settings-mod-list button')?.dataset.modId;
   $('mod-select').replaceChildren();
   if (current && !matches.includes(current)) $('mod-select').add(new Option(`현재 선택 · ${modLabel(current)} (${current.modId})`, current.modId));
   for (const mod of matches) $('mod-select').add(new Option(`${modLabel(mod)} (${mod.modId})`, mod.modId));
   if (selectedId) $('mod-select').value = selectedId;
+  $('settings-mod-list').replaceChildren();
+  for (const mod of matches) {
+    const row = document.createElement('li'), button = document.createElement('button');
+    button.type = 'button'; button.dataset.modId = mod.modId;
+    button.disabled = busy || diagnosing || !!approval;
+    button.setAttribute('aria-pressed', String(mod.modId === selectedId));
+    const name = document.createElement('strong'), detail = document.createElement('span');
+    name.textContent = modLabel(mod); detail.textContent = `${mod.modId} · ${mod.modVersion || '버전 없음'}${mod.modId === selectedId ? ' · 선택됨' : ''}`;
+    button.append(name, detail);
+    button.onclick = async () => {
+      if (button.disabled) return;
+      $('mod-select').value = mod.modId; await selectMod();
+      if (document.activeElement === document.body) [...$('settings-mod-list').querySelectorAll('button')].find(item => item.dataset.modId === mod.modId)?.focus();
+    };
+    row.append(button); $('settings-mod-list').append(row);
+  }
+  if (!matches.length) { const row = document.createElement('li'); row.textContent = query ? '일치하는 모드가 없습니다.' : '현재 활성 모드가 없습니다.'; $('settings-mod-list').append(row); }
+  $('settings-current-mod').textContent = current ? `현재 선택: ${modLabel(current)} (${current.modId})` : '선택한 모드가 없습니다.';
   $('settings-search-status').textContent = query ? matches.length ? `검색 결과 ${matches.length}개 · 목록에서 모드를 선택해 주세요.` : '일치하는 모드가 없습니다. 현재 설정은 유지됩니다.' : `활성 모드 ${mods.length}개`;
+  if (focusedId) [...$('settings-mod-list').querySelectorAll('button')].find(button => button.dataset.modId === focusedId)?.focus();
 }
 $('settings-search').oninput = renderModOptions;
 async function openMod(modId) { $('settings-search').value = ''; renderModOptions(); $('mod-select').value = modId; await selectMod(); showTab('settings'); }
@@ -143,14 +169,12 @@ function renderMods() {
   for (const mod of visible) {
     const row = document.createElement('li'); row.dataset.modId = mod.modId;
     const title = document.createElement('strong'); title.textContent = `${modLabel(mod)} · ${mod.modVersion || '버전 없음'}`;
-    const detail = document.createElement('p');
+    const detail = document.createElement('span'); detail.className = 'mod-detail';
     detail.textContent = `${mod.modId} · API ${mod.apiError ? '오류' : mod.apiSupported ? '지원' : '미지원'} · ${sourceLabel(mod)} · 수동 주소 ${settings[mod.modId]?.postURL ? '저장됨' : '없음'}`;
     if (mod.apiError) detail.textContent += ` · ${mod.apiError}`;
     if (mod.gameSpec) detail.textContent += ` · ${gameFamilyLabel(mod.gameFamily)} 호환 (${mod.gameSpec})`;
-    const status = document.createElement('p'); status.className = 'mod-status';
+    const status = document.createElement('span'); status.className = 'mod-status';
     status.textContent = mod.supported === false ? `지원 불가: ${mod.reason || '버전 정보를 확인할 수 없습니다.'}` : checks.get(mod.modId)?.text || (sourceURL(mod) ? '미확인' : '주소 미등록');
-    const select = document.createElement('button'); select.textContent = '모드 설정'; select.disabled = busy || diagnosing || !!approval;
-    select.onclick = () => openMod(mod.modId);
     const checkButton = document.createElement('button'); checkButton.textContent = '상태 확인'; checkButton.disabled = busy || diagnosing || !!approval || mod.supported === false;
     checkButton.onclick = async () => { await openMod(mod.modId); await check(); };
     const rollback = document.createElement('button'); rollback.textContent = '롤백'; rollback.disabled = busy || diagnosing || !!approval;
@@ -159,8 +183,13 @@ function renderMods() {
       if (!root) { error('자동 연결 안내를 확인하거나 경로 변경으로 게임 폴더를 연결해 주세요. 연결하면 이 모드의 업데이트 전 백업이 표시됩니다.'); $('folder').focus(); return; }
       $('rollback').scrollIntoView({block:'nearest'}); $('rollback').focus();
     };
-    const content = document.createElement('div'), actions = document.createElement('div'); actions.className = 'mod-actions';
-    content.append(title, detail, status); actions.append(select, checkButton, rollback); row.append(content, actions); $('active-mods').append(row);
+    const content = document.createElement('button'), actions = document.createElement('div'); actions.className = 'mod-actions';
+    content.type = 'button'; content.className = 'mod-entry'; content.disabled = busy || diagnosing || !!approval;
+    content.setAttribute('aria-label', `${modLabel(mod)} 모드 설정. ${detail.textContent}. ${status.textContent}`); content.setAttribute('aria-pressed', String(mod.modId === selectedId));
+    content.onclick = () => openMod(mod.modId);
+    content.append(title, detail, status); actions.append(checkButton, rollback); row.append(content, actions);
+    row.onclick = event => { if (event.target === row && !content.disabled) content.click(); };
+    $('active-mods').append(row);
   }
   if (!visible.length) { const row = document.createElement('li'); row.textContent = query ? '일치하는 모드가 없습니다. 다른 이름이나 ID로 검색해 주세요.' : '게임에서 모드를 활성화한 뒤 목록을 새로고침해 주세요.'; $('active-mods').append(row); }
 }
@@ -203,6 +232,7 @@ const message = async data => {
   if (!result?.ok) throw Object.assign(new Error(result?.error || '확장 프로그램 연결에 실패했습니다.'), {code:result?.code});
   return result;
 };
+const settingsContext = () => ({documentId:game.documentId,gameVersion:game.gameVersion,wmlVersion:game.wmlVersion});
 function error(value) { $('error').hidden = !value; $('error').textContent = value || ''; }
 function refreshButtons() {
   const locked = busy || diagnosing || !!approval;
@@ -211,6 +241,7 @@ function refreshButtons() {
   $('refresh-active').disabled = locked;
   $('use-detected-folder').disabled = locked || !game || jobs.some(job => ['waiting','running'].includes(job.state));
   $('settings-search').disabled = locked || !game?.mods?.length;
+  for (const button of $('settings-mod-list').querySelectorAll('button')) button.disabled = locked;
   $('check-all').disabled = locked || !game?.mods?.length;
   $('diagnose').disabled = locked || !selectedId;
   $('diagnostic-retry').disabled = locked || !selectedId;
@@ -418,7 +449,7 @@ async function check() {
     if (!await askPassword()) { $('release-status').textContent='비밀번호 설정을 취소했습니다.'; return; }
     if (!postURL) throw Object.assign(new Error('게시글 주소를 먼저 등록해 주세요.'), {code:'MISSING_URL'});
     validatePostURL(postURL);
-    if (!currentMod()?.apiPostURL) { await message({type:'SAVE_SETTINGS', modId, postURL}); settings[modId] = {postURL}; }
+    if (!currentMod()?.apiPostURL && (currentMod()?.source !== 'wiki' || postURL !== currentMod()?.postURL)) { await message({type:'SAVE_SETTINGS', modId, postURL,tabId:game.tabId,gameContext:settingsContext()}); settings[modId] = {postURL}; }
     let result;
     try { result = await inspectPost(currentMod(), postURL); }
     catch (e) { if (e.code !== 'PASSWORD_REQUIRED' || !await askPassword(true)) throw e; result = await inspectPost(currentMod(), postURL); }
@@ -465,7 +496,7 @@ $('save-source').onclick = async () => {
   resetTarget(); busy = true; error(''); refreshButtons();
   try {
     const postURL = $('post-url').value.trim(); validatePostURL(postURL);
-    await message({type:'SAVE_SETTINGS',modId:selectedId,postURL}); settings[selectedId] = {postURL};
+    await message({type:'SAVE_SETTINGS',modId:selectedId,postURL,tabId:game.tabId,gameContext:settingsContext()}); settings[selectedId] = {postURL};
     checks.delete(selectedId); $('source-status').textContent = sourceLabel(currentMod());
     $('release-status').textContent = '게시글 주소를 저장했습니다. 새 버전을 확인해 주세요.';
   } catch(e) { error(e.message); }
@@ -701,11 +732,11 @@ async function loadActive() {
   closeUnusedNativeRoots();
   try {
   $('access').hidden = await chrome.extension.isAllowedFileSchemeAccess();
-  const saved = await message({type:'GET_SETTINGS'});
-  settings = saved.settings || {}; passwordConfigured = saved.passwordConfigured === true; defaultPassword = saved.defaultPassword ?? '';
   const params = new URL(location.href).searchParams;
   const tabId = game?.tabId ?? params.get('tabId');
   game = (await message({type:'GET_GAME',...(tabId !== null && /^\d+$/.test(tabId) ? {tabId:Number(tabId)} : {})})).game;
+  const saved = await message({type:'GET_SETTINGS',...(game ? {tabId:game.tabId,gameContext:settingsContext()} : {})});
+  settings = saved.settings || {}; passwordConfigured = saved.passwordConfigured === true; defaultPassword = saved.defaultPassword ?? '';
   $('mod-select').replaceChildren(); selectedId = '';
   if(game) {
     $('game-path').textContent = decodeURIComponent(game.url);
@@ -730,10 +761,13 @@ async function loadActive() {
   } catch(e) { game = null; selectedId = ''; $('mod-select').replaceChildren(); $('game-status').textContent = '게임 연결을 확인하지 못했습니다.'; error(e.message); }
   finally { busy = false; renderModOptions(); refreshButtons(); }
   await gameUpdater.load(game);
+  wikiUI?.setGame(game);
 }
 $('refresh-active').onclick = loadActive;
-showTab(new URL(location.href).searchParams.get('view') === 'settings' ? 'settings' : 'updates');
+showTab(['settings','game','wiki'].includes(new URL(location.href).searchParams.get('view')) ? new URL(location.href).searchParams.get('view') : 'updates');
 gameUpdater=initGameUpdater({message,askPassword,getPassword:()=>defaultPassword,isBusy:()=>busy || diagnosing || !!approval || jobs.some(job=>['waiting','running'].includes(job.state)),setBusy:value=>{busy=value;refreshButtons();},onInstalled:()=>{checks.clear();resetTarget();$('game-status').textContent='게임 본체 설치 완료. 게임을 다시 연 뒤 활성 목록을 새로고침하세요.';}});
+wikiUI=initWikiUI({message,askPassword,getPassword:()=>defaultPassword,getGame:()=>game,isBusy:()=>busy || diagnosing || !!approval || jobs.some(job=>['waiting','running'].includes(job.state)),setBusy:value=>{busy=value;refreshButtons();}});
+if ($('tab-wiki').getAttribute('aria-selected') === 'true') void wikiUI.load();
 await loadActive();
 if(game && !passwordConfigured) {
   busy=true;refreshButtons();

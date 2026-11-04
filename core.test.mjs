@@ -19,7 +19,7 @@ for (const modId of ['another_mod', 'my.mod', 'rival_tavern', 'mod--id']) {
 }
 assert.equal(validatePostURL(POST_URL), POST_URL);
 for (const value of ['not a URL', 'https://example.com']) assert.throws(() => validatePostURL(value), error => error.code === 'POST_URL_INVALID');
-for (const value of [POST_URL + '?a=b', POST_URL + '#hash', POST_URL.replace('/somisoft/', '/somisoft/write/'), POST_URL.replace('kone.gg', 'kone.gg.evil.example'), POST_URL.replace('https://', 'https://user@'), 'https://kone.gg/s/space/short']) assert.throws(() => validatePostURL(value));
+for (const value of [POST_URL + '?a=b', POST_URL + '#hash', POST_URL.replace('/s/', '/s/space/write/'), POST_URL.replace('kone.gg', 'kone.gg.evil.example'), POST_URL.replace('https://', 'https://user@'), 'https://kone.gg/s/space/short']) assert.throws(() => validatePostURL(value));
 assert.equal(validateReleaseURL(link), link);
 for (const value of [link + '?a=b', link + '#hash', link.replace('kio.ac', 'evil.example'), link.replace('https://', 'https://user@'), link + 'x']) assert.throws(() => validateReleaseURL(value));
 for (const payload of [link, btoa(link), `${link} ${btoa(link)}`]) assert.equal(parseRelease('[test-mod] v1.2.3', `다운로드 (1.2.3) ${payload}`, options).urls[0], link);
@@ -135,7 +135,9 @@ globalThis.chrome = {
     if (value.type === 'READ_SNAPSHOT') { assert.ok(options.documentId); if (value.connect && currentSnapshot) await announce(); if (duringRead) await duringRead(); return {ok: !!currentSnapshot, snapshot: currentSnapshot, apis}; }
   }}
 };
-globalThis.fetch = async (url, init) => { fetches.push({url, init});
+globalThis.fetch = async (url, init) => {
+if(url.startsWith('https://bxcptogtnylktxodiqyn.supabase.co/')) return new Response('[]',{headers:{'content-type':'application/json'}});
+fetches.push({url, init});
 if(url.startsWith('https://api.kio.ac/')) return new Response(encoder.encode(url.endsWith('/directory/get') ? {files:[{name:'test-mod 1.2.4.zip',size:100,id:new Uint8Array(16).fill(1)}]} : {root:new Uint8Array(16),token:'fixture',segment_size:100}),{headers:{'content-type':'application/cbor'}});
 return new Response(`<title>[test-mod] 1.2.4</title><p>다운로드 (1.2.4)</p>${link}`); };
 await import('./worker.mjs');
@@ -171,16 +173,17 @@ assert.equal(game.wmlVersion, '0.9.5');
 assert.equal(game.mods.some(mod => mod.modId === 'forged-active'), false);
 assert.equal(game.mods[0].source, 'api');
 assert.equal((await send({type: 'CHECK_RELEASE', modId: 'test-mod', tabId: 1})).release.postURL, POST_URL);
-const cachedRelease = structuredClone(local.data['release-test-mod']);
+const cacheKey = `release-v2:${game.gameFamily}:${game.gameVersion}:${game.wmlVersion}:test-mod`;
+const cachedRelease = structuredClone(local.data[cacheKey]);
 const cachedStatus = () => send({type: 'VERIFY_ACTIVE', tabId: 1, modId: 'test-mod'});
 const fetchesBeforeCached = fetches.length;
 assert.equal((await cachedStatus()).status.cachedRelease.version, '1.2.4');
 for (const patch of [{postURL: post}, {modId: 'other-mod'}, {checkedAt: Date.now() - 3600001}, {checkedAt: Date.now() + 60000}, {version: 'bad'}, {url: 'https://evil.example'}]) {
-  local.data['release-test-mod'] = {...cachedRelease, ...patch};
+  local.data[cacheKey] = {...cachedRelease, ...patch};
   assert.equal((await cachedStatus()).status.cachedRelease, undefined, 'stale, mismatched or invalid cached releases must be excluded');
 }
 assert.equal(fetches.length, fetchesBeforeCached, 'reading cached releases must not fetch');
-local.data['release-test-mod'] = cachedRelease;
+local.data[cacheKey] = cachedRelease;
 assert.equal((await send({type: 'GET_SETTINGS'})).settings['test-mod'].postURL, post);
 const localBeforeDiagnosis = structuredClone(local.data);
 const diagnosis = () => send({type:'DIAGNOSE_POST',modId:'test-mod',postURL:post});

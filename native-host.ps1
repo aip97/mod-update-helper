@@ -8,6 +8,7 @@ $utf8 = New-Object Text.UTF8Encoding($false, $true)
 $gameRoot = $null
 $gameName = $null
 $writers = @{}
+$newModStages = @{}
 $selfLease = $null
 $defenderScan = $null
 $gameFiles = New-Object 'Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
@@ -85,6 +86,23 @@ function DropWriter([string]$token) {
         $writers.Remove($token)
     }
 }
+function DropEmptyModStage([string]$token) {
+    if (-not $newModStages.ContainsKey($token)) { return }
+    $stage = ResolveRelative $newModStages[$token].stage -Write
+    if ([IO.Directory]::Exists($stage)) {
+        $dirs = New-Object 'Collections.Generic.List[string]'; $dirs.Add($stage)
+        for ($i = 0; $i -lt $dirs.Count; $i++) {
+            CheckAncestors $dirs[$i]
+            foreach ($entry in [IO.Directory]::EnumerateFileSystemEntries($dirs[$i])) {
+                $attributes = [IO.File]::GetAttributes($entry)
+                Need (($attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0 -and ($attributes -band [IO.FileAttributes]::Directory) -ne 0) 'The staging folder is not empty.'
+                $dirs.Add($entry)
+            }
+        }
+        for ($i = $dirs.Count - 1; $i -ge 0; $i--) { [IO.Directory]::Delete($dirs[$i], $false) }
+    }
+    $newModStages.Remove($token)
+}
 . (Join-Path $PSScriptRoot 'native-defender.ps1')
 function Dispatch($request) {
     if ($request.op -is [string] -and $request.op.StartsWith('scan-')) {
@@ -114,6 +132,32 @@ function Dispatch($request) {
         $script:gameName = [IO.Path]::GetFileName($file)
         return @{name=(New-Object IO.DirectoryInfo($gameRoot)).Name; gameFile=$gameName; path=$gameRoot}
     }
+    if ($request.op -eq 'new-mod-begin') {
+        Need ($newModStages.Count -lt 8) 'Too many pending mod installations.'
+        Need ($request.modId -is [string] -and $request.modId.Length -le 64 -and $request.modId -cmatch '^[a-z0-9][a-z0-9._-]*$' -and -not $request.modId.EndsWith('.')) 'Invalid mod ID.'
+        $target = 'wml/mods/' + $request.modId
+        $targetPath = ResolveRelative $target -Write
+        Need (-not [IO.File]::Exists($targetPath) -and -not [IO.Directory]::Exists($targetPath)) 'The mod folder already exists.' 'InvalidModificationError'
+        Need ([IO.Directory]::Exists([IO.Path]::GetDirectoryName($targetPath))) 'Mod parent folder not found.' 'NotFoundError'
+        $backup = ResolveRelative ('.wml-mod-updater-backups/' + $request.modId) -Write
+        [void][IO.Directory]::CreateDirectory($backup)
+        $stage = '.wml-mod-updater-backups/' + $request.modId + '/.wiki-stage-' + [Guid]::NewGuid().ToString('N')
+        $stagePath = ResolveRelative $stage -Write
+        Need (-not [IO.File]::Exists($stagePath) -and -not [IO.Directory]::Exists($stagePath)) 'Staging folder already exists.'
+        [void][IO.Directory]::CreateDirectory($stagePath)
+        $token = [Guid]::NewGuid().ToString('N'); $newModStages[$token] = @{stage=$stage;target=$target}
+        return @{token=$token;stage=$stage}
+    }
+    if ($request.op -in @('new-mod-publish','new-mod-abort')) {
+        Need ($request.token -is [string] -and $newModStages.ContainsKey($request.token)) 'Unknown mod installation.'
+        if ($request.op -eq 'new-mod-abort') { DropEmptyModStage $request.token; return @{} }
+        $stage = ResolveRelative $newModStages[$request.token].stage -Write
+        $target = ResolveRelative $newModStages[$request.token].target -Write
+        Need ([IO.File]::Exists((Join-Path $stage 'mod.js'))) 'Staged mod entry point is missing.'
+        [IO.Directory]::Move($stage,$target)
+        $newModStages.Remove($request.token)
+        return @{}
+    }
     if ($request.op -in @('chunk', 'commit', 'abort')) {
         Need ($request.token -is [string] -and $writers.ContainsKey($request.token)) 'Unknown write transaction.'
         $writer = $writers[$request.token]
@@ -129,12 +173,13 @@ function Dispatch($request) {
         }
         $writer.stream.Flush($true); $writer.stream.Dispose()
         CheckAncestors $writer.temp
-        if ([IO.File]::Exists($target)) { [IO.File]::Replace($writer.temp, $target, [NullString]::Value) } else { [IO.File]::Move($writer.temp, $target) }
+        if ($writer.exclusive) { [IO.File]::Move($writer.temp, $target) }
+        elseif ([IO.File]::Exists($target)) { [IO.File]::Replace($writer.temp, $target, [NullString]::Value) } else { [IO.File]::Move($writer.temp, $target) }
         $writers.Remove($request.token)
         return @{}
     }
-    $path = ResolveRelative $request.path -Write:($request.op -in @('mkdir','begin','remove') -or ($request.op -eq 'stat' -and $request.create))
-    if ($request.op -in @('begin', 'remove') -or ($request.op -eq 'stat' -and $request.kind -eq 'file' -and $request.create)) {
+    $path = ResolveRelative $request.path -Write:($request.op -in @('mkdir','begin','begin-new','remove') -or ($request.op -eq 'stat' -and $request.create))
+    if ($request.op -in @('begin', 'begin-new', 'remove') -or ($request.op -eq 'stat' -and $request.kind -eq 'file' -and $request.create)) {
         Need ($gamePaths.Contains($request.path) -or $request.path -match '^(?:wml/mods|\.wml-mod-updater-backups)/[a-z0-9][a-z0-9._-]*/.+$' -or $request.path -match '^image-packs/.+/(?:pack\.js|[^/]+\.(?:json|png|jpe?g|webp|gif|avif))$') 'Only approved update files can be changed.'
         if ($gameFiles.Contains($request.path)) { Need ($null -ne $gameRollback) 'Game backup must be verified before writes.' }
     }
@@ -181,13 +226,14 @@ function Dispatch($request) {
             } finally { $stream.Dispose() }
             return @{data=[Convert]::ToBase64String($bytes)}
         }
-        'begin' {
+        { $_ -in @('begin','begin-new') } {
             Need ($writers.Count -lt 8) 'Too many pending writes.'
             Need ([IO.Directory]::Exists([IO.Path]::GetDirectoryName($path))) 'Parent folder not found.' 'NotFoundError'
+            if ($request.op -eq 'begin-new') { Need (-not [IO.File]::Exists($path) -and -not [IO.Directory]::Exists($path)) 'The target file already exists.' 'InvalidModificationError' }
             $token = [Guid]::NewGuid().ToString('N')
             $temp = Join-Path ([IO.Path]::GetDirectoryName($path)) ('.wml-updater-write-' + $token + '.tmp')
             $stream = [IO.File]::Open($temp, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
-            $writers[$token] = @{path=$request.path;temp=$temp;stream=$stream}
+            $writers[$token] = @{path=$request.path;temp=$temp;stream=$stream;exclusive=($request.op -eq 'begin-new')}
             return @{token=$token}
         }
         'remove' { Need ([IO.File]::Exists($path)) 'File not found.' 'NotFoundError'; [IO.File]::Delete($path); return @{} }

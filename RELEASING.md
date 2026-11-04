@@ -18,12 +18,26 @@ node release.mjs init aip97/mod-update-helper
 
 ## 새 버전 발행
 
+0.8.0 위키 기능은 Supabase 데이터베이스 마이그레이션과 `wiki-registration-v1` Edge 함수 배포, 관리자 로그인 설정, 실제 신청·승인·설치 연동 검증이 선행되어야 합니다. 완료 및 검증 전의 ZIP은 사전 검증용이며 운영 가능한 위키 배포판으로 발행하지 않습니다. 서버의 코네 인증 연동이 완성되기 전에는 게시글·ZIP 자동 수집과 자동 공개를 비활성화하고 모든 신청을 관리자 수동 심사합니다.
+
 1. manifest.json, package.json, wml-reader.js·game-bridge.js의 재연결 버전, 문서의 버전을 같은 X.Y.Z로 올리고 변경 내용을 검증합니다.
 2. Node.js 22 이상·Python 3 환경에서 npm test를, Windows PowerShell 5.1 환경에서 npm run test:windows를 실행합니다. 실제 브라우저와 라이브 게임 검증 여부는 별도로 기록합니다.
 3. node package.mjs를 실행하여 User/Modder ZIP을 만듭니다. 같은 파일이 이미 있으면 덮어쓰지 않으므로 새 버전 또는 별도 출력 폴더를 사용합니다.
 4. node release.mjs sign을 실행합니다. User ZIP의 SHA-256과 내부 모든 파일 해시·버전·고정 확장 ID를 서명합니다. 이후 ZIP을 바꾸면 다시 서명해야 합니다.
-5. node export-source.mjs로 공개할 도우미 소스만 release-source/에 복사합니다. 게임 저장소 전체나 기존 게임 Git 이력을 올리지 않습니다. 서명키·다운로드·테스트 브라우저 데이터는 내보내지 않습니다.
+5. node export-source.mjs로 공개할 도우미 소스만 release-source/에 복사합니다. 기존 파일을 보존하며 별도 후보를 만들 때는 `node export-source.mjs --output release-artifacts/source-candidate-X.Y.Z`처럼 프로젝트 안의 비어 있는 디렉터리를 지정합니다. 예상 밖 파일이나 링크가 있으면 중단합니다. 게임 저장소 전체나 기존 게임 Git 이력을 올리지 않으며, 서명키·다운로드·테스트 브라우저 데이터는 내보내지 않습니다.
 6. 검토한 소스를 GitHub에 올리고 태그 vX.Y.Z의 정식 릴리스에 위 3개 파일을 첨부합니다. 이후 설치본은 시작 시 및 6시간마다 확인합니다.
+
+브라우저 테스트는 설치된 Chrome 또는 Chromium과 테스트 전용 Puppeteer가 필요합니다. 아래 명령은 도우미 프로젝트 루트에서 실행하며 운영 패키지나 런타임 의존성을 변경하지 않습니다. 브라우저가 기본 설치 경로에 없으면 `WML_TEST_CHROME`에 실행 파일 절대 경로를 지정하세요. `browser-test.mjs`는 압축 해제 확장 로딩을 지원하는 Chromium 또는 Chrome for Testing이 필요합니다.
+
+```powershell
+npm.cmd install --no-save --no-package-lock --ignore-scripts --prefix test-output/browser-deps puppeteer-core@25.12.0
+# 필요할 때만: $env:WML_TEST_CHROME = 'C:\path\to\chrome.exe'
+node browser-test.mjs
+node bulk-browser-test.mjs
+node consent-browser-test.mjs
+node game-update-browser-test.mjs
+node wiki-browser-test.mjs
+```
 
 저장소·검증키가 바뀌는 배포는 기존 설치에서 거부합니다. 같은 키를 유지하세요. 훼손된 ZIP·서명 불일치·낮은 버전·예상 밖 경로는 설치하지 않습니다. 새 확장이 120초 안에 시작 확인을 보내지 않으면 Windows 복구 도우미가 이전 파일을 복원합니다. 최신 버전의 재시도가 반복 실패하면 같은 버전을 다시 설치하지 않습니다.
 

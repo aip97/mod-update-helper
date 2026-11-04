@@ -1,0 +1,31 @@
+import assert from 'node:assert/strict';
+import {getWikiSources,listWikiMods,submitWikiMod} from './wiki-client.mjs';
+
+const calls=[];
+globalThis.fetch=async (url,options)=>{
+  calls.push({url,options});
+  if(url.includes('wiki-registration-v1')) return new Response(JSON.stringify({ok:true,status:'pending',id:'fixture'}));
+  if(url.includes('select=mod_id,post_url')) return new Response(JSON.stringify([{mod_id:'example',post_url:'https://kone.gg/s/test/abcdefghijklmnopqrstuv'}]));
+  return new Response(JSON.stringify([{mod_id:'example'}]));
+};
+assert.equal((await listWikiMods()).length,1);
+assert.equal((await getWikiSources()).length,1);
+assert.ok(!calls.at(-1).url.includes('example'),'public source lookup must not transmit installed mod IDs');
+globalThis.fetch=async (url,options)=>{calls.push({url,options});return new Response(JSON.stringify(url.includes('offset=0')?Array.from({length:500},(_,i)=>({mod_id:'public-'+i})): [{mod_id:'last'}]));};
+assert.equal((await getWikiSources()).length,501);
+assert.ok(calls.slice(-2).every(call=>!call.url.includes('mod_id=in.')),'pagination must never query installed mod IDs');
+globalThis.fetch=async (url,options)=>{calls.push({url,options});return new Response(JSON.stringify({ok:true,status:'pending',id:'fixture'}));};
+await submitWikiMod('create',{mod_id:'example'},'detected');
+const sent=calls.at(-1);
+assert.equal(sent.options.credentials,'omit');
+assert.equal(sent.options.referrerPolicy,'no-referrer');
+assert.deepEqual(JSON.parse(sent.options.body),{kind:'create',payload:{mod_id:'example'},source:'detected'});
+assert.ok(sent.options.headers.apikey.startsWith('sb_publishable_'));
+assert.equal(sent.options.headers.Authorization,undefined);
+globalThis.fetch=async()=>new Response('',{status:403});
+await assert.rejects(listWikiMods(),/403/);
+globalThis.fetch=async()=>new Response(JSON.stringify({error:'ZIP 버전 불일치'}),{status:400});
+await assert.rejects(submitWikiMod('create',{}),/ZIP 버전 불일치/);
+globalThis.fetch=async()=>{throw new TypeError('network unavailable')};
+await assert.rejects(submitWikiMod('create',{}),error=>error.code==='SUBMISSION_UNKNOWN');
+console.log('Wiki client: public read, validated lookup, credential-free submission and failures passed.');

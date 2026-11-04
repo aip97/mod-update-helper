@@ -1,6 +1,6 @@
 (() => {
   if (window.top !== window || !/\.html?$/i.test(location.pathname)) return;
-  if (globalThis.__wmlUpdaterBridge?.version === '0.7.4') return;
+  if (globalThis.__wmlUpdaterBridge?.version === '0.8.0') return;
   globalThis.__wmlUpdaterBridge?.dispose?.();
   const notified = new Set(), requests = new Map();
   const validId = id => typeof id === 'string' && id.length <= 100 && /^[a-zA-Z0-9._-]+$/.test(id);
@@ -73,11 +73,11 @@
     const open = document.createElement('button'); open.textContent = '업데이트 확인';
     const later = document.createElement('button'); later.textContent = '나중에';
     for (const button of [open, later]) button.style.cssText = 'margin:12px 8px 0 0;padding:7px 11px;cursor:pointer';
-    open.onclick = () => chrome.runtime.sendMessage({type: 'OPEN_UPDATER', ...(message.type==='UPDATE_AVAILABLE'?{modId:message.modId}:{})}).catch(() => {});
+    open.onclick = () => chrome.runtime.sendMessage({type: 'OPEN_UPDATER', ...(message.type==='UPDATE_AVAILABLE'?{modId:message.modId}:message.type==='GAME_UPDATE_AVAILABLE'?{view:'game'}:{})}).catch(() => {});
     later.onclick = () => box.remove(); box.append(label, open, later); stack.append(box);
   };
   chrome.runtime.onMessage.addListener(receive);
-  globalThis.__wmlUpdaterBridge={version:'0.7.4',dispose(){
+  globalThis.__wmlUpdaterBridge={version:'0.8.0',dispose(){
     clearInterval(timer); window.removeEventListener('message',bridge); chrome.runtime.onMessage.removeListener(receive);
     document.getElementById('wml-browser-updater-notices')?.remove();
   }};

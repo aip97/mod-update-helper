@@ -1,0 +1,390 @@
+-- Preserve existing rows while separating independently named game variants.
+begin;
+
+create or replace function public.wiki_valid_game_spec(p_spec text) returns boolean
+language plpgsql immutable set search_path = pg_catalog
+as $$
+declare part text; parts text[]; family text; found_family text; version text; d date; segment text;
+begin
+  if p_spec is null or char_length(p_spec)>128 then return false; end if;
+  if btrim(p_spec)='' or btrim(p_spec)='*' then return true; end if;
+  foreach segment in array regexp_split_to_array(p_spec,'[|][|]') loop
+    if btrim(segment)='' then return false; end if;
+  end loop;
+  foreach part in array regexp_split_to_array(regexp_replace(btrim(p_spec),'[|][|]',' ','g'),'[[:space:]]+') loop
+    parts := regexp_match(part,'^([a-z][a-z0-9]*(?:-[a-z0-9]+)*)(>=|<=|>|<|=)-?([0-9]+(?:[.][0-9]+)*)$');
+    version := null;
+    if parts is not null then
+      found_family := parts[1]; version := parts[3];
+    else
+      parts := regexp_match(part,'^(>=|<=|>|<|=)?([a-z][a-z0-9]*(?:-[a-z0-9]+)*)-([0-9]+(?:[.][0-9]+)*)$');
+      if parts is not null then
+        found_family := parts[2]; version := parts[3];
+      else
+        parts := regexp_match(part,'^(>=|<=|>|<|=)?([0-9]{4}-[0-9]{2}-[0-9]{2})(?:-([a-z][a-z0-9.]*))?$');
+        if parts is not null then
+          found_family := 'wayward';
+          if substring(parts[2],1,4)::int < 1000 then return false; end if;
+          begin
+            d := make_date(substring(parts[2],1,4)::int,substring(parts[2],6,2)::int,substring(parts[2],9,2)::int);
+          exception when others then return false; end;
+        elsif part ~ '^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$' then
+          found_family := part;
+        else return false; end if;
+      end if;
+    end if;
+    if char_length(found_family)>64 or found_family='any' then return false; end if;
+    if version is not null and (found_family='wayward' or char_length(found_family||'-'||version)>64
+      or version !~ '^(0|[1-9][0-9]{0,5})([.](0|[1-9][0-9]{0,5}))*$') then return false; end if;
+    if family is not null and family<>found_family then return false; end if;
+    family := found_family;
+  end loop;
+  return true;
+end $$;
+revoke all on function public.wiki_valid_game_spec(text) from public, anon, authenticated;
+
+create or replace function public.wiki_game_family(p_spec text) returns text
+language plpgsql immutable set search_path = pg_catalog
+as $$
+declare part text; parts text[];
+begin
+  if not public.wiki_valid_game_spec(p_spec) then raise exception 'WIKI_INVALID_FIELDS'; end if;
+  if btrim(p_spec)='' then return 'wayward'; end if;
+  if btrim(p_spec)='*' then return 'any'; end if;
+  part := (regexp_split_to_array(regexp_replace(btrim(p_spec),'[|][|]',' ','g'),'[[:space:]]+'))[1];
+  parts := regexp_match(part,'^([a-z][a-z0-9]*(?:-[a-z0-9]+)*)(>=|<=|>|<|=)-?([0-9]+(?:[.][0-9]+)*)$');
+  if parts is not null then return parts[1]; end if;
+  parts := regexp_match(part,'^(>=|<=|>|<|=)?([a-z][a-z0-9]*(?:-[a-z0-9]+)*)-([0-9]+(?:[.][0-9]+)*)$');
+  if parts is not null then return parts[2]; end if;
+  if part ~ '^(>=|<=|>|<|=)?[0-9]{4}-[0-9]{2}-[0-9]{2}' then return 'wayward'; end if;
+  return part;
+end $$;
+revoke all on function public.wiki_game_family(text) from public, anon, authenticated;
+
+alter table public.wiki_mods add column game_family text;
+alter table public.wiki_submissions add column game_family text;
+alter table public.wiki_trusted_sources add column game_family text;
+alter table public.wiki_audit_log add column game_family text;
+update public.wiki_mods set game_family=public.wiki_game_family(game_spec);
+update public.wiki_submissions set game_family=public.wiki_game_family(game_spec);
+-- Never transfer trust when historical data cannot identify exactly one family.
+update public.wiki_trusted_sources t set game_family=coalesce((
+  select case when count(distinct family)=1 then min(family) else '__legacy_unresolved' end from (
+    select m.game_family family from public.wiki_mods m where m.mod_id=t.mod_id and m.post_url=t.post_url
+    union all
+    select s.game_family from public.wiki_submissions s where s.mod_id=t.mod_id and s.post_url=t.post_url and s.version=t.version and s.package_sha256=t.package_sha256
+  ) matches
+),'__legacy_unresolved');
+update public.wiki_audit_log a set game_family=case
+  when a.after_data ? 'game_spec' and public.wiki_valid_game_spec(a.after_data->>'game_spec') then public.wiki_game_family(a.after_data->>'game_spec')
+  when a.before_data ? 'game_spec' and public.wiki_valid_game_spec(a.before_data->>'game_spec') then public.wiki_game_family(a.before_data->>'game_spec')
+  when a.submission_id is not null then coalesce((select s.game_family from public.wiki_submissions s where s.id=a.submission_id),'__legacy_unresolved')
+  else coalesce((select t.game_family from public.wiki_trusted_sources t where t.mod_id=a.mod_id and t.post_url=coalesce(a.after_data->>'post_url',a.before_data->>'post_url')),'__legacy_unresolved') end;
+alter table public.wiki_mods alter column game_family set not null;
+alter table public.wiki_submissions alter column game_family set not null;
+alter table public.wiki_trusted_sources alter column game_family set not null;
+alter table public.wiki_audit_log alter column game_family set not null;
+alter table public.wiki_mods drop constraint wiki_mods_pkey;
+alter table public.wiki_mods add primary key (game_family,mod_id);
+alter table public.wiki_trusted_sources drop constraint wiki_trusted_sources_pkey;
+alter table public.wiki_trusted_sources add primary key (game_family,mod_id);
+drop index public.wiki_one_pending_per_mod;
+create unique index wiki_one_pending_per_mod on public.wiki_submissions (game_family,mod_id) where status='pending';
+alter table public.wiki_mods add constraint wiki_mods_family_matches_spec check (game_family=public.wiki_game_family(game_spec));
+alter table public.wiki_submissions add constraint wiki_submissions_family_matches_spec check (game_family=public.wiki_game_family(game_spec));
+
+drop function public.wiki_edit_mod(text,integer,jsonb);
+drop function public.wiki_set_trusted_source(text,text,text,text,text);
+drop function public.wiki_remove_trusted_source(text,text);
+
+create or replace function public.wiki_resolve_family(p_mod_id text, p_game_family text) returns text
+language plpgsql stable security definer set search_path = pg_catalog
+as $$
+declare family text; matches integer;
+begin
+  if p_game_family is not null then
+    if p_game_family !~ '^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$' or char_length(p_game_family)>64 then raise exception 'WIKI_INVALID_FIELDS'; end if;
+    return p_game_family;
+  end if;
+  select count(*), min(f) into matches, family from (
+    select game_family f from public.wiki_mods where mod_id=p_mod_id
+    union select game_family from public.wiki_submissions where mod_id=p_mod_id and status='pending'
+    union select game_family from public.wiki_trusted_sources where mod_id=p_mod_id
+  ) families;
+  if matches>1 then raise exception 'WIKI_AMBIGUOUS_MOD'; end if;
+  return coalesce(family,'wayward');
+end $$;
+revoke all on function public.wiki_resolve_family(text,text) from public, anon, authenticated;
+
+create or replace function public.wiki_validate_payload(p_payload jsonb) returns jsonb
+language plpgsql immutable set search_path = pg_catalog
+as $$
+declare v jsonb; versions text[]; api text;
+begin
+  if jsonb_typeof(p_payload) is distinct from 'object' then raise exception 'WIKI_INVALID_PAYLOAD'; end if;
+  if jsonb_typeof(p_payload->'wml_versions') is distinct from 'array'
+     or jsonb_array_length(p_payload->'wml_versions') > 20 then raise exception 'WIKI_INVALID_WML'; end if;
+  if exists (select 1 from jsonb_array_elements(p_payload->'wml_versions') e where jsonb_typeof(e) <> 'string') then raise exception 'WIKI_INVALID_WML'; end if;
+  select coalesce(array_agg(x),array[]::text[]) into versions from jsonb_array_elements_text(p_payload->'wml_versions') x;
+  if exists (select 1 from unnest(versions) x where x !~ '^(0|[1-9][0-9]{0,5})[.](0|[1-9][0-9]{0,5})[.](0|[1-9][0-9]{0,5})$')
+     or (select count(distinct x) from unnest(versions) x) <> cardinality(versions) then raise exception 'WIKI_INVALID_WML'; end if;
+  if jsonb_typeof(p_payload->'api_version') not in ('string','null') and p_payload ? 'api_version' then raise exception 'WIKI_INVALID_API_VERSION'; end if;
+  api := nullif(btrim(p_payload->>'api_version'),'');
+  if api is not null and api !~ '^[A-Za-z0-9._-]{1,32}$' then raise exception 'WIKI_INVALID_API_VERSION'; end if;
+  if jsonb_typeof(p_payload->'mod_id') is distinct from 'string'
+     or (p_payload->>'mod_id') !~ '^[a-z0-9][a-z0-9._-]{0,63}$'
+     or (p_payload->>'mod_id') ~ '[.]$'
+     or (p_payload->>'mod_id') ~* '^(con|prn|aux|nul|com[0-9]|lpt[0-9])([.]|$)' then raise exception 'WIKI_INVALID_MOD_ID'; end if;
+  if jsonb_typeof(p_payload->'post_url') is distinct from 'string'
+     or (p_payload->>'post_url') !~ '^https://kone[.]gg/s/[A-Za-z0-9_-]{1,100}/[A-Za-z0-9_-]{22}$' then raise exception 'WIKI_INVALID_POST_URL'; end if;
+  if jsonb_typeof(p_payload->'name') is distinct from 'string' or char_length(btrim(p_payload->>'name')) not between 1 and 120
+     or jsonb_typeof(p_payload->'description') is distinct from 'string' or char_length(btrim(p_payload->>'description')) not between 1 and 5000
+     or jsonb_typeof(p_payload->'category') is distinct from 'string' or char_length(btrim(p_payload->>'category')) not between 1 and 60
+     or jsonb_typeof(p_payload->'game_spec') is distinct from 'string' or char_length(btrim(p_payload->>'game_spec')) > 128
+     or (cardinality(versions)=0 and btrim(p_payload->>'game_spec')='')
+     or not public.wiki_valid_game_spec(p_payload->>'game_spec')
+     or jsonb_typeof(p_payload->'version') is distinct from 'string' or (p_payload->>'version') !~ '^(0|[1-9][0-9]{0,5})[.](0|[1-9][0-9]{0,5})[.](0|[1-9][0-9]{0,5})$'
+     then raise exception 'WIKI_INVALID_FIELDS'; end if;
+  if p_payload ? 'game_family' and (jsonb_typeof(p_payload->'game_family') is distinct from 'string'
+     or p_payload->>'game_family' <> public.wiki_game_family(p_payload->>'game_spec')) then raise exception 'WIKI_GAME_FAMILY_CHANGED'; end if;
+  v := jsonb_build_object('mod_id',p_payload->>'mod_id','game_family',public.wiki_game_family(p_payload->>'game_spec'),'name',btrim(p_payload->>'name'),
+      'post_url',p_payload->>'post_url','wml_versions',to_jsonb(versions),'game_spec',btrim(p_payload->>'game_spec'),
+      'description',btrim(p_payload->>'description'),'category',btrim(p_payload->>'category'),
+      'version',p_payload->>'version','api_version',api);
+  return v;
+end $$;
+revoke all on function public.wiki_validate_payload(jsonb) from public, anon, authenticated;
+
+create or replace function public.wiki_create_submission(p_payload jsonb, p_kind text, p_source text, p_verification text, p_api_verified boolean, p_package_sha256 text, p_rate_key text)
+returns jsonb language plpgsql security definer set search_path = pg_catalog
+as $$
+declare v jsonb; s public.wiki_submissions%rowtype; base integer;
+begin
+  if auth.role() is distinct from 'service_role' then raise exception using errcode='42501', message='WIKI_SERVICE_REQUIRED'; end if;
+  if p_kind not in ('create','revision') or p_kind is null
+     or p_source not in ('manual','detected') or p_source is null
+     or p_verification not in ('server_verified','manual_review') or p_verification is null
+     or p_api_verified is null or (p_verification <> 'server_verified' and p_api_verified)
+     or (p_source='detected' and (p_verification <> 'server_verified' or not p_api_verified))
+     or (p_verification='server_verified' and (p_package_sha256 is null or p_package_sha256 !~ '^[a-f0-9]{64}$'))
+     or (p_verification='manual_review' and p_package_sha256 is not null)
+     or p_rate_key is null or p_rate_key !~ '^[a-f0-9]{64}$' then raise exception 'WIKI_INVALID_SUBMISSION'; end if;
+  v := public.wiki_validate_payload(p_payload);
+  -- Serialize queue admission so concurrent requests cannot exceed the bound.
+  perform pg_advisory_xact_lock(728114603221::bigint);
+  if (select count(*) from public.wiki_submissions where status='pending') >= 500 then raise exception 'WIKI_QUEUE_FULL'; end if;
+  select revision into base from public.wiki_mods where mod_id=v->>'mod_id' and game_family=v->>'game_family' for update;
+  if p_kind='create' and base is not null then raise exception 'WIKI_ALREADY_PUBLISHED'; end if;
+  if p_kind='revision' and base is null then raise exception 'WIKI_NOT_FOUND'; end if;
+  insert into public.wiki_submissions(mod_id,game_family,name,post_url,wml_versions,game_spec,description,category,version,api_version,package_sha256,kind,source,verification,api_verified,base_revision)
+  values(v->>'mod_id',v->>'game_family',v->>'name',v->>'post_url',array(select jsonb_array_elements_text(v->'wml_versions')),
+    v->>'game_spec',v->>'description',v->>'category',v->>'version',v->>'api_version',p_package_sha256,p_kind,p_source,p_verification,p_api_verified,base)
+  returning * into s;
+  return jsonb_build_object('id',s.id,'status',s.status,'revision',s.revision,'verification',s.verification);
+end $$;
+revoke all on function public.wiki_create_submission(jsonb,text,text,text,boolean,text,text) from public, anon, authenticated;
+grant execute on function public.wiki_create_submission(jsonb,text,text,text,boolean,text,text) to service_role;
+
+create or replace function public.wiki_set_trusted_source(p_mod_id text, p_post_url text, p_version text, p_package_sha256 text, p_note text, p_game_family text default null)
+returns jsonb language plpgsql security definer set search_path = pg_catalog
+as $$
+declare before_row jsonb; result public.wiki_trusted_sources%rowtype; candidate public.wiki_submissions%rowtype; family text;
+begin
+  if not public.wiki_is_admin() then raise exception using errcode='42501', message='WIKI_ADMIN_REQUIRED'; end if;
+  if p_mod_id is null or p_mod_id !~ '^[a-z0-9][a-z0-9._-]{0,63}$' or p_mod_id ~ '[.]$'
+     or p_post_url is null or p_post_url !~ '^https://kone[.]gg/s/[A-Za-z0-9_-]{1,100}/[A-Za-z0-9_-]{22}$'
+     or p_mod_id ~* '^(con|prn|aux|nul|com[0-9]|lpt[0-9])([.]|$)'
+     or p_version is null or p_version !~ '^(0|[1-9][0-9]{0,5})[.](0|[1-9][0-9]{0,5})[.](0|[1-9][0-9]{0,5})$'
+     or p_package_sha256 is null or p_package_sha256 !~ '^[a-f0-9]{64}$'
+     or p_note is null or char_length(btrim(p_note)) not between 1 and 1000 then raise exception 'WIKI_INVALID_SOURCE'; end if;
+  family := public.wiki_resolve_family(p_mod_id,p_game_family);
+  select to_jsonb(t) into before_row from public.wiki_trusted_sources t where mod_id=p_mod_id and game_family=family for update;
+  insert into public.wiki_trusted_sources(mod_id,game_family,post_url,version,package_sha256,verified_by,verified_at,note)
+    values(p_mod_id,family,p_post_url,p_version,p_package_sha256,auth.uid(),now(),btrim(p_note))
+    on conflict (game_family,mod_id) do update set post_url=excluded.post_url, version=excluded.version, package_sha256=excluded.package_sha256, verified_by=excluded.verified_by, verified_at=excluded.verified_at, note=excluded.note
+    returning * into result;
+  insert into public.wiki_audit_log(action,actor,mod_id,game_family,before_data,after_data) values('trust_source',auth.uid(),p_mod_id,family,before_row,to_jsonb(result));
+  select s.* into candidate from public.wiki_submissions s
+    where s.mod_id=p_mod_id and s.game_family=family and s.post_url=p_post_url and s.version=p_version and s.package_sha256=p_package_sha256
+      and s.status='pending' and s.kind='create' and s.source='detected'
+      and s.verification='server_verified' and s.api_verified and s.api_version is not null
+    for update;
+  if found then perform public.wiki_publish_submission(candidate.id,candidate.revision,auth.uid(),'verified trusted source'); end if;
+  return to_jsonb(result);
+end $$;
+revoke all on function public.wiki_set_trusted_source(text,text,text,text,text,text) from public, anon, authenticated;
+grant execute on function public.wiki_set_trusted_source(text,text,text,text,text,text) to authenticated;
+
+create or replace function public.wiki_remove_trusted_source(p_mod_id text, p_note text, p_game_family text default null)
+returns boolean language plpgsql security definer set search_path = pg_catalog
+as $$
+declare old_row jsonb; family text;
+begin
+  if not public.wiki_is_admin() then raise exception using errcode='42501', message='WIKI_ADMIN_REQUIRED'; end if;
+  if p_note is null or char_length(btrim(p_note)) not between 1 and 1000 then raise exception 'WIKI_INVALID_SOURCE'; end if;
+  family := public.wiki_resolve_family(p_mod_id,p_game_family);
+  delete from public.wiki_trusted_sources as t where t.mod_id=p_mod_id and t.game_family=family returning to_jsonb(t) into old_row;
+  if old_row is null then raise exception 'WIKI_NOT_FOUND'; end if;
+  insert into public.wiki_audit_log(action,actor,mod_id,game_family,before_data,after_data)
+    values('remove_trusted_source',auth.uid(),p_mod_id,family,old_row,jsonb_build_object('note',btrim(p_note)));
+  return true;
+end $$;
+revoke all on function public.wiki_remove_trusted_source(text,text,text) from public, anon, authenticated;
+grant execute on function public.wiki_remove_trusted_source(text,text,text) to authenticated;
+
+create or replace function public.wiki_publish_submission(p_id uuid, p_expected_revision integer, p_actor uuid, p_note text)
+returns jsonb language plpgsql security definer set search_path = pg_catalog
+as $$
+declare s public.wiki_submissions%rowtype; old_mod public.wiki_mods%rowtype; new_mod public.wiki_mods%rowtype; had_mod boolean;
+begin
+  select * into s from public.wiki_submissions where id=p_id for update;
+  if not found then raise exception 'WIKI_NOT_FOUND'; end if;
+  if s.status <> 'pending' then raise exception 'WIKI_SUBMISSION_CLOSED'; end if;
+  if p_expected_revision is null or s.revision <> p_expected_revision then raise exception 'WIKI_REVISION_CONFLICT'; end if;
+  if s.verification not in ('server_verified','manual_review') then raise exception 'WIKI_DIAGNOSTICS_REQUIRED'; end if;
+  if s.verification='manual_review' and (p_actor is null or coalesce(char_length(btrim(p_note)),0)=0) then
+    raise exception 'WIKI_REVIEW_NOTE_REQUIRED';
+  end if;
+  select * into old_mod from public.wiki_mods where mod_id=s.mod_id and game_family=s.game_family for update;
+  had_mod := found;
+  if (s.kind='create' and had_mod) or (s.kind='revision' and (not had_mod or old_mod.revision is distinct from s.base_revision)) then
+    raise exception 'WIKI_REVISION_CONFLICT';
+  end if;
+  if s.kind='create' then
+    begin
+      insert into public.wiki_mods(mod_id,game_family,name,post_url,wml_versions,game_spec,description,category,version,api_version,package_sha256)
+      values(s.mod_id,s.game_family,s.name,s.post_url,s.wml_versions,s.game_spec,s.description,s.category,s.version,s.api_version,s.package_sha256) returning * into new_mod;
+    exception when unique_violation then raise exception 'WIKI_REVISION_CONFLICT'; end;
+  else
+    update public.wiki_mods set name=s.name,post_url=s.post_url,wml_versions=s.wml_versions,game_spec=s.game_spec,
+      description=s.description,category=s.category,version=s.version,api_version=s.api_version,package_sha256=s.package_sha256,
+      revision=revision+1,updated_at=now() where mod_id=s.mod_id and game_family=s.game_family returning * into new_mod;
+  end if;
+  update public.wiki_submissions set status='approved',revision=revision+1,updated_at=now(),reviewed_at=now(),
+    reviewed_by=p_actor,review_note=p_note where id=s.id returning * into s;
+  insert into public.wiki_audit_log(action,actor,mod_id,game_family,submission_id,before_data,after_data)
+    values('approve',p_actor,s.mod_id,s.game_family,s.id,case when had_mod then to_jsonb(old_mod) else null end,to_jsonb(new_mod));
+  return to_jsonb(s);
+end $$;
+revoke all on function public.wiki_publish_submission(uuid,integer,uuid,text) from public, anon, authenticated, service_role;
+
+create or replace function public.wiki_review(p_submission_id uuid, p_expected_revision integer, p_decision text, p_note text default null)
+returns jsonb language plpgsql security definer set search_path = pg_catalog
+as $$
+declare s public.wiki_submissions%rowtype; old_row jsonb;
+begin
+  if not public.wiki_is_admin() then raise exception using errcode='42501', message='WIKI_ADMIN_REQUIRED'; end if;
+  if p_decision is null or p_decision not in ('approved','rejected') or coalesce(char_length(p_note),0)>1000 then raise exception 'WIKI_INVALID_DECISION'; end if;
+  if p_decision='approved' then return public.wiki_publish_submission(p_submission_id,p_expected_revision,auth.uid(),p_note); end if;
+  select * into s from public.wiki_submissions where id=p_submission_id for update;
+  if not found then raise exception 'WIKI_NOT_FOUND'; end if;
+  if s.status <> 'pending' then raise exception 'WIKI_SUBMISSION_CLOSED'; end if;
+  if p_expected_revision is null or s.revision <> p_expected_revision then raise exception 'WIKI_REVISION_CONFLICT'; end if;
+  old_row := to_jsonb(s);
+  update public.wiki_submissions set status='rejected',revision=revision+1,updated_at=now(),reviewed_at=now(),
+    reviewed_by=auth.uid(),review_note=p_note where id=s.id returning * into s;
+  insert into public.wiki_audit_log(action,actor,mod_id,game_family,submission_id,before_data,after_data)
+    values('reject',auth.uid(),s.mod_id,s.game_family,s.id,old_row,to_jsonb(s));
+  return to_jsonb(s);
+end $$;
+revoke all on function public.wiki_review(uuid,integer,text,text) from public, anon, authenticated;
+grant execute on function public.wiki_review(uuid,integer,text,text) to authenticated;
+
+create or replace function public.wiki_auto_publish(p_submission_id uuid) returns jsonb
+language plpgsql security definer set search_path = pg_catalog
+as $$
+declare s public.wiki_submissions%rowtype;
+begin
+  if auth.role() is distinct from 'service_role' then raise exception using errcode='42501', message='WIKI_SERVICE_REQUIRED'; end if;
+  select * into s from public.wiki_submissions where id=p_submission_id for update;
+  if not found then raise exception 'WIKI_NOT_FOUND'; end if;
+  if s.status <> 'pending' then raise exception 'WIKI_SUBMISSION_CLOSED'; end if;
+  if s.kind <> 'create' or s.source <> 'detected' or s.verification <> 'server_verified' or not s.api_verified or s.api_version is null
+     or not exists(select 1 from public.wiki_trusted_sources t where t.mod_id=s.mod_id and t.game_family=s.game_family and t.post_url=s.post_url and t.version=s.version and t.package_sha256=s.package_sha256)
+     then raise exception 'WIKI_AUTO_APPROVAL_DENIED'; end if;
+  return public.wiki_publish_submission(s.id,s.revision,null,'verified trusted source');
+end $$;
+revoke all on function public.wiki_auto_publish(uuid) from public, anon, authenticated;
+grant execute on function public.wiki_auto_publish(uuid) to service_role;
+
+create or replace function public.wiki_edit_submission(p_submission_id uuid, p_expected_revision integer, p_payload jsonb)
+returns jsonb language plpgsql security definer set search_path = pg_catalog
+as $$
+declare s public.wiki_submissions%rowtype; v jsonb; old_row jsonb; changed boolean;
+begin
+  if not public.wiki_is_admin() then raise exception using errcode='42501', message='WIKI_ADMIN_REQUIRED'; end if;
+  select * into s from public.wiki_submissions where id=p_submission_id for update;
+  if not found then raise exception 'WIKI_NOT_FOUND'; end if;
+  if s.status <> 'pending' then raise exception 'WIKI_SUBMISSION_CLOSED'; end if;
+  if p_expected_revision is null or s.revision <> p_expected_revision then raise exception 'WIKI_REVISION_CONFLICT'; end if;
+  v := public.wiki_validate_payload(p_payload || jsonb_build_object('mod_id',s.mod_id));
+  if v->>'game_family' <> s.game_family then raise exception 'WIKI_GAME_FAMILY_CHANGED'; end if;
+  changed := s.post_url is distinct from v->>'post_url' or s.version is distinct from v->>'version'
+    or s.api_version is distinct from v->>'api_version' or s.game_spec is distinct from v->>'game_spec'
+    or s.wml_versions is distinct from array(select jsonb_array_elements_text(v->'wml_versions'));
+  old_row := to_jsonb(s);
+  update public.wiki_submissions set name=v->>'name',post_url=v->>'post_url',
+    wml_versions=array(select jsonb_array_elements_text(v->'wml_versions')),game_spec=v->>'game_spec',
+    description=v->>'description',category=v->>'category',version=v->>'version',api_version=v->>'api_version',
+    verification=case when changed then 'unverified' else verification end,
+    api_verified=case when changed then false else api_verified end,
+    package_sha256=case when changed then null else package_sha256 end,source='manual',revision=revision+1,updated_at=now()
+    where id=s.id returning * into s;
+  insert into public.wiki_audit_log(action,actor,mod_id,game_family,submission_id,before_data,after_data)
+    values('edit_submission',auth.uid(),s.mod_id,s.game_family,s.id,old_row,to_jsonb(s));
+  return to_jsonb(s);
+end $$;
+revoke all on function public.wiki_edit_submission(uuid,integer,jsonb) from public, anon, authenticated;
+grant execute on function public.wiki_edit_submission(uuid,integer,jsonb) to authenticated;
+
+create or replace function public.wiki_mark_manual_review(p_submission_id uuid, p_expected_revision integer, p_note text)
+returns jsonb language plpgsql security definer set search_path = pg_catalog
+as $$
+declare s public.wiki_submissions%rowtype; old_row jsonb;
+begin
+  if not public.wiki_is_admin() then raise exception using errcode='42501', message='WIKI_ADMIN_REQUIRED'; end if;
+  if p_note is null or char_length(btrim(p_note)) not between 1 and 1000 then raise exception 'WIKI_REVIEW_NOTE_REQUIRED'; end if;
+  select * into s from public.wiki_submissions where id=p_submission_id for update;
+  if not found then raise exception 'WIKI_NOT_FOUND'; end if;
+  if s.status <> 'pending' then raise exception 'WIKI_SUBMISSION_CLOSED'; end if;
+  if p_expected_revision is null or s.revision <> p_expected_revision then raise exception 'WIKI_REVISION_CONFLICT'; end if;
+  old_row := to_jsonb(s);
+  update public.wiki_submissions set verification='manual_review',api_verified=false,package_sha256=null,review_note=btrim(p_note),
+    revision=revision+1,updated_at=now() where id=s.id returning * into s;
+  insert into public.wiki_audit_log(action,actor,mod_id,game_family,submission_id,before_data,after_data)
+    values('manual_review',auth.uid(),s.mod_id,s.game_family,s.id,old_row,to_jsonb(s));
+  return to_jsonb(s);
+end $$;
+revoke all on function public.wiki_mark_manual_review(uuid,integer,text) from public, anon, authenticated;
+grant execute on function public.wiki_mark_manual_review(uuid,integer,text) to authenticated;
+
+create or replace function public.wiki_edit_mod(p_mod_id text, p_expected_revision integer, p_payload jsonb, p_game_family text default null)
+returns jsonb language plpgsql security definer set search_path = pg_catalog
+as $$
+declare m public.wiki_mods%rowtype; v jsonb; old_row jsonb; changed boolean; family text;
+begin
+  if not public.wiki_is_admin() then raise exception using errcode='42501', message='WIKI_ADMIN_REQUIRED'; end if;
+  family := public.wiki_resolve_family(p_mod_id,p_game_family);
+  select * into m from public.wiki_mods where mod_id=p_mod_id and game_family=family for update;
+  if not found then raise exception 'WIKI_NOT_FOUND'; end if;
+  if p_expected_revision is null or m.revision <> p_expected_revision then raise exception 'WIKI_REVISION_CONFLICT'; end if;
+  v := public.wiki_validate_payload(p_payload || jsonb_build_object('mod_id',m.mod_id));
+  if v->>'game_family' <> m.game_family then raise exception 'WIKI_GAME_FAMILY_CHANGED'; end if;
+  changed := m.post_url is distinct from v->>'post_url' or m.version is distinct from v->>'version'
+    or m.api_version is distinct from v->>'api_version' or m.game_spec is distinct from v->>'game_spec'
+    or m.wml_versions is distinct from array(select jsonb_array_elements_text(v->'wml_versions'));
+  old_row := to_jsonb(m);
+  update public.wiki_mods set name=v->>'name',post_url=v->>'post_url',
+    wml_versions=array(select jsonb_array_elements_text(v->'wml_versions')),game_spec=v->>'game_spec',
+    description=v->>'description',category=v->>'category',version=v->>'version',api_version=v->>'api_version',
+    package_sha256=case when changed then null else package_sha256 end,
+    revision=revision+1,updated_at=now() where mod_id=m.mod_id and game_family=m.game_family returning * into m;
+  insert into public.wiki_audit_log(action,actor,mod_id,game_family,before_data,after_data)
+    values('edit_mod',auth.uid(),m.mod_id,m.game_family,old_row,to_jsonb(m));
+  return to_jsonb(m);
+end $$;
+revoke all on function public.wiki_edit_mod(text,integer,jsonb,text) from public, anon, authenticated;
+grant execute on function public.wiki_edit_mod(text,integer,jsonb,text) to authenticated;
+
+commit;
+

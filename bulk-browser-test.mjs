@@ -1,0 +1,261 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import http from 'node:http';
+import {fileURLToPath} from 'node:url';
+import puppeteer,{testChrome} from './browser-test-deps.mjs';
+const dir = path.dirname(fileURLToPath(import.meta.url));
+const installer = `
+export async function readModMetadata(root,id){const mod=__mods.find(mod=>mod.modId===id),ko=id==='sound-mod'?undefined:id==='fixture-042'?'달빛 여관':'테스트 모드 '+id;return {modVersion:__installed[id]||'1.0.0',gameSpec:'>=2026-10-04',gameFamily:'wayward',supportedWml:['0.9.4'],modName:ko||mod?.modName,modNameKo:ko,modNameEn:mod?.modName}}
+export async function inspectGameDirectory(root,id,options){if(options?.gameFile!=='Wayward.html')throw new Error('Exact game HTML was not selected');return {modVersion:__folderVersion||__installed[id]||'1.0.0',wmlVersion:'0.9.4',gameVersion:'2026-11-01',gameFamily:'wayward',gameFile:'Wayward.html',htmlVersion:'2026-11-01',gameSpec:'>=2026-10-04',supportedWml:['0.9.4']}}
+export async function inspectPackage(){return {supportedWml:['0.9.4'],gameSpec:'>=2026-10-04'}}
+export function evaluateCompatibility(){return {state:'supported',gameState:'supported',gameSpec:'>=2026-10-04'}}
+export async function listBackups(){return []}
+export async function restoreBackup(){throw new Error('Unexpected restore')}
+export async function applyUpdate(root,bytes,opts){if(opts.gameFile!=='Wayward.html')throw new Error('Exact game HTML was lost during install');__writes.push(opts.modId);__events.push('write:'+opts.modId);__installed[opts.modId]=opts.expectedVersion;return {version:opts.expectedVersion,backupPath:'fixture-backup'}}`;
+const kio = `export async function downloadRelease(opts){__downloads.push(opts);__events.push('download:'+opts.modId);if(__hold===opts.modId)await new Promise(resolve=>globalThis.__release=resolve);if(__disableAfter===opts.modId)__inactive.push(opts.modId);return new ArrayBuffer(1)}`;
+const folderStore = `export async function loadGameFolder(url){if(globalThis.__folderStoreFail)throw new Error('fixture storage unavailable');return globalThis.__savedFolder?.url===url?globalThis.__savedFolder.handle:null} export async function saveGameFolder(url,handle){if(globalThis.__folderStoreFail)throw new Error('fixture storage unavailable');globalThis.__savedFolder={url,handle}} export async function forgetGameFolder(){delete globalThis.__savedFolder}`;
+const nativeFilesystem = `export async function connectNativeGameFolder(url){if(!globalThis.__nativeEnabled)throw new Error('fixture native host unavailable');const handle={kind:'directory',name:'auto-game',native:true,gameFile:'Wayward.html',path:'/fixture',disconnected:false,async queryPermission(){return this.disconnected?'denied':'granted'},disconnect(){this.disconnected=true}};__nativeHandles.push(handle);return handle}`;
+const server = http.createServer((req,res) => {
+  const name = new URL(req.url,'http://localhost').pathname.slice(1) || 'update.html';
+  if (!['update.html','update.mjs','update.css','core.mjs','game-compat.mjs','mod-names-ko.mjs','native-filesystem.mjs','self-update.mjs','game-update-ui.mjs','wiki-ui.mjs','installer.mjs','kio.js','folder-store.mjs','defender-scan.mjs'].includes(name)) return void res.writeHead(404).end();
+  res.setHeader('Content-Type', name.endsWith('.html')?'text/html; charset=utf-8':name.endsWith('.css')?'text/css':'text/javascript');
+  res.end(name==='wiki-ui.mjs'?'export function initWikiUI(){return {load(){},setGame(){}}}':name==='defender-scan.mjs'?'export async function scanDownloadedZip(){}':name==='installer.mjs'?installer:name==='kio.js'?kio:name==='folder-store.mjs'?folderStore:name==='native-filesystem.mjs'?nativeFilesystem:fs.readFileSync(path.join(dir,name)));
+});
+await new Promise(resolve => server.listen(0,'127.0.0.1',resolve));
+let browser;
+try {
+  browser = await puppeteer.launch({executablePath:testChrome,headless:true,protocolTimeout:20000,args:['--no-sandbox']});
+  const page = await browser.newPage(), failures=[];
+  page.on('pageerror', error=>failures.push(error.message));
+  await page.evaluateOnNewDocument(() => {
+    globalThis.__downloads=[];globalThis.__writes=[];globalThis.__events=[];globalThis.__installed={};globalThis.__inactive=[];globalThis.__hold=null;globalThis.__disableAfter=null;
+    globalThis.__nativeHandles=[];globalThis.__nativeEnabled=false;
+    globalThis.__mods=Array.from({length:100},(_,i)=>({modId:'fixture-'+String(i).padStart(3,'0'),modName:i===42?'Unique Moon Inn':'Fixture Mod '+i,modVersion:'1.0.0',supported:true,apiSupported:true,apiPostURL:'https://kone.gg/s/fixture/aaaaaaaaaaaaaaaaaaaaaa'}));
+    __mods[0].cachedRelease={modId:'fixture-000',version:'1.1.0',url:'https://kio.ac/c/aaaaaaaaaaaaaaaaaaaaaa',postURL:__mods[0].apiPostURL,checkedAt:Date.now()};
+    globalThis.__checks=0;globalThis.__gameReads=0;globalThis.__gameDocumentId='first-document';globalThis.__gameVersion='2026-11-01';globalThis.__gameFamily='wayward';
+    globalThis.chrome={extension:{isAllowedFileSchemeAccess:async()=>true},tabs:{reload:async()=>{}},runtime:{id:'fixture-extension',onMessage:{addListener:fn=>{globalThis.__onUpdateNotice=fn}},sendMessage:async msg=>{
+      if(msg.type==='GET_GAME_SOURCE')return {ok:true,source:null};
+      if(msg.type==='SET_DEFAULT_PASSWORD')return {ok:true};
+      if(msg.type==='GET_SETTINGS')return {ok:true,settings:{},passwordConfigured:true,defaultPassword:'fixture-password'};
+      if(msg.type==='GET_GAME'){__gameReads++;return {ok:true,game:{tabId:7,documentId:__gameDocumentId,url:'file:///fixture/Wayward.html',wmlVersion:'0.9.4',gameVersion:__gameVersion,gameFamily:__gameFamily,mods:structuredClone(__mods)}};}
+      if(msg.type==='DIAGNOSE_POST')return {ok:true,diagnostic:{ok:!!globalThis.__diagnosticPass,modId:msg.modId,postURL:msg.postURL,checkedAt:Date.now(),checks:[{id:'format',label:'형식',status:globalThis.__diagnosticPass?'pass':'error'}]}};
+      if(msg.type==='VERIFY_ACTIVE')return __inactive.includes(msg.modId)?{ok:false,error:'fixture inactive: '+msg.modId}:{ok:true,status:{active:true,modId:msg.modId,modVersion:'1.0.0',wmlVersion:'0.9.4',gameVersion:'2026-11-01',gameFamily:'wayward',url:'file:///fixture/Wayward.html',documentId:__gameDocumentId}};
+      if(msg.type==='CHECK_RELEASE'){
+        __checks++;
+        const number=Number(msg.modId.split('-')[1]);
+        return number===8?{ok:false,error:'fixture invalid post'}:{ok:true,release:{modId:msg.modId,version:number<6?'1.1.0':number===7?'0.9.0':'1.0.0',url:'https://kio.ac/c/'+msg.modId,postURL:'https://kone.gg/s/fixture/aaaaaaaaaaaaaaaaaaaaaa'}};
+      }
+      throw new Error('Unexpected message '+msg.type);
+    }}};
+    globalThis.__pickerCalls=[];globalThis.__permissionRequests=0;globalThis.__folderPermission='granted';globalThis.__folderVersion=null;
+    globalThis.showDirectoryPicker=async options=>{__pickerCalls.push({startIn:options.startIn?.name});__folderPermission='granted';return {name:'fixture-game',queryPermission:async()=>__folderPermission,requestPermission:async()=>{__permissionRequests++;throw new Error('Unexpected permission prompt')}}};
+  });
+  await page.goto(`http://127.0.0.1:${server.address().port}/update.html`,{waitUntil:'networkidle0'});
+  const idle=()=>page.waitForFunction(()=>!document.querySelector('#check-all').disabled);
+  const setInput=(selector,value)=>page.$eval(selector,(el,value)=>{el.value=value;el.dispatchEvent(new Event('input',{bubbles:true}));},value);
+  const select=async ids=>{for(const id of ids)await page.click(`#ready-mods [data-mod-id="fixture-${id}"] input`);};
+  const finished=count=>page.waitForFunction(count=>document.querySelectorAll('#queue-list [data-state="done"],#queue-list [data-state="failed"]').length===count,{},count);
+  await idle();
+  assert.equal(await page.$eval('#panel-game',el=>el.hidden),true,'game update should not consume the main view');
+  await page.click('#tab-game');
+  assert.equal(await page.$eval('#panel-game',el=>el.hidden),false);
+  assert.match(await page.$eval('#game-update .notice',el=>el.textContent),/모드.*충돌/);
+  await page.focus('#tab-game');await page.keyboard.press('ArrowRight');
+  assert.equal(await page.evaluate(()=>document.activeElement.id),'tab-wiki');
+  await page.keyboard.press('ArrowRight');
+  assert.equal(await page.evaluate(()=>document.activeElement.id),'tab-updates','keyboard navigation wraps across all tabs');
+  await page.evaluate(()=>__onUpdateNotice({type:'OPEN_GAME_UPDATE',tabId:7},{id:'fixture-extension'}));
+  assert.equal(await page.$eval('#tab-game',el=>el.getAttribute('aria-selected')),'true','game notice opens the game tab');
+  await page.click('#tab-updates');
+  assert.match(await page.$eval('#detected-folder',el=>el.textContent),/\/fixture\//);
+  assert.equal(await page.evaluate(()=>__pickerCalls.length),0,'initial folder detection must not open a picker');
+  await page.click('#bulk-folder');await idle();
+  assert.equal(await page.evaluate(()=>__savedFolder.url),'file:///fixture/Wayward.html');
+  await page.click('#refresh-active');await idle();
+  assert.equal(await page.evaluate(()=>__pickerCalls.length),1,'a granted saved folder automatically reconnects');
+  assert.match(await page.$eval('#bulk-folder-status',el=>el.textContent),/저장한 사용자 경로 연결/);
+  assert.match(await page.$eval('#folder-status',el=>el.textContent),/fixture-game\/Wayward\.html.*사용자 지정 경로/);
+  await page.evaluate(()=>{__folderPermission='prompt'});await page.click('#refresh-active');await idle();
+  assert.match(await page.$eval('#bulk-folder-status',el=>el.textContent),/권한이 만료/);
+  assert.equal(await page.evaluate(()=>__permissionRequests),0,'expired grants must never automatically request access');
+  await page.click('#bulk-folder');await idle();
+  assert.equal(await page.evaluate(()=>__pickerCalls.at(-1).startIn),'fixture-game','explicit reconnection opens at the remembered folder');
+  await page.evaluate(()=>{__folderVersion='9.0.0'});await page.click('#refresh-active');await idle();
+  assert.match(await page.$eval('#bulk-folder-status',el=>el.textContent),/모드 버전.*다릅니다/);
+  await page.evaluate(()=>{__folderVersion=null;__folderStoreFail=true});await page.click('#refresh-active');await idle();
+  await page.click('#bulk-folder');await idle();
+  assert.match(await page.$eval('#folder-status',el=>el.textContent),/fixture-game\/Wayward\.html.*사용자 지정 경로/,'storage failure must not prevent a verified manual connection');
+  assert.deepEqual(await page.evaluate(()=>[__downloads.length,__writes.length,__permissionRequests]),[0,0,0]);
+  await page.evaluate(()=>{__folderStoreFail=false});
+  assert.deepEqual(await page.$$eval('#ready-mods [data-mod-id]',els=>els.map(el=>el.dataset.modId)),['fixture-000']);
+  assert.equal(await page.evaluate(()=>__checks),0,'cached updates must be visible without another network check');
+  await page.evaluate(()=>{__mods[1].cachedRelease={...__mods[0].cachedRelease,modId:'fixture-001'};__onUpdateNotice({type:'UPDATES_AVAILABLE',tabId:7},{id:'unrelated-extension'});});
+  assert.equal(await page.$$eval('#ready-mods [data-mod-id]',els=>els.length),1);
+  await page.evaluate(()=>__onUpdateNotice({type:'UPDATES_AVAILABLE',tabId:7},{id:'fixture-extension'}));
+  await page.waitForFunction(()=>document.querySelectorAll('#ready-mods [data-mod-id]').length===2);
+  assert.equal(await page.evaluate(()=>__checks),0,'automatic refresh only reads cached metadata');
+  assert.equal(await page.$eval('#tab-updates',el=>el.getAttribute('aria-selected')),'true');
+  await page.focus('#tab-updates');await page.keyboard.press('ArrowRight');
+  assert.equal(await page.evaluate(()=>document.activeElement.id),'tab-active');
+  assert.equal(await page.$$eval('#active-mods [data-mod-id]',els=>els.length),100);
+  await setInput('#mod-search','unique moon');
+  assert.deepEqual(await page.$$eval('#active-mods [data-mod-id]',els=>els.map(el=>el.dataset.modId)),['fixture-042']);
+  assert.match(await page.$eval('#active-mods strong',el=>el.textContent),/달빛 여관.*Unique Moon Inn/);
+  for(const query of ['달빛 여관','ＵＮＩＱＵＥ ＭＯＯＮ']){
+    await setInput('#mod-search',query);
+    assert.deepEqual(await page.$$eval('#active-mods [data-mod-id]',els=>els.map(el=>el.dataset.modId)),['fixture-042']);
+  }
+  await setInput('#mod-search','fixture-073');
+  assert.deepEqual(await page.$$eval('#active-mods [data-mod-id]',els=>els.map(el=>el.dataset.modId)),['fixture-073']);
+  await page.focus('#active-mods [data-mod-id="fixture-073"] .mod-entry');await page.keyboard.press('Enter');
+  await page.waitForFunction(()=>document.querySelector('#tab-settings').getAttribute('aria-selected')==='true');await idle();
+  assert.equal(await page.$eval('#mod-select',el=>el.value),'fixture-073','keyboard-selecting an active row opens that mod');
+  await page.click('#tab-active');await setInput('#mod-search','fixture-000');await page.click('#active-mods [data-mod-id="fixture-000"] .mod-entry');await idle();
+  assert.equal(await page.$eval('#mod-select',el=>el.value),'fixture-000','pointer-selecting an active row changes the target');
+  await page.click('#tab-active');
+  await setInput('#mod-search','');
+  await page.click('#tab-settings');
+  await page.waitForFunction(()=>!document.querySelector('#diagnose').disabled);
+  await page.click('#diagnose');await page.waitForFunction(()=>!document.querySelector('#diagnostic').hidden && document.querySelector('#diagnostic-summary').textContent.includes('수정 필요'));
+  assert.match(await page.$eval('#diagnostic .notice',el=>el.textContent),/하나의 게시글.*모드 다운로드 링크/);
+  await page.evaluate(()=>globalThis.__diagnosticPass=true);await page.click('#diagnostic-retry');await page.waitForFunction(()=>document.querySelector('#diagnostic-summary').textContent.includes('통과'));
+  assert.match(await page.$eval('#diagnostic .notice',el=>el.textContent),/하나의 게시글.*모드 다운로드 링크/);
+  await setInput('#settings-search','UNIQUE MOON');
+  assert.deepEqual(await page.$$eval('#mod-select option',els=>els.map(el=>el.value)),['fixture-000','fixture-042']);
+  assert.deepEqual(await page.$$eval('#settings-mod-list button',els=>els.map(el=>el.dataset.modId)),['fixture-042']);
+  assert.equal(await page.$eval('#mod-select',el=>el.hidden),true,'the searchable list replaces the visible dropdown');
+  assert.equal(await page.$eval('#mod-select',el=>getComputedStyle(el).display),'none','the former dropdown must not be rendered');
+  await setInput('#settings-search','달빛 여관');
+  assert.deepEqual(await page.$$eval('#mod-select option',els=>els.map(el=>el.value)),['fixture-000','fixture-042']);
+  assert.equal(await page.$eval('#mod-select',el=>el.value),'fixture-000','search must preserve selection until explicitly changed');
+  await page.focus('#settings-mod-list button[data-mod-id="fixture-042"]');await page.keyboard.press('Enter');await idle();
+  assert.equal(await page.$eval('#mod-select',el=>el.value),'fixture-042','keyboard selection updates the existing target');
+  assert.equal(await page.$eval('#settings-mod-list button',el=>el.getAttribute('aria-pressed')),'true');
+  assert.equal(await page.evaluate(()=>document.activeElement?.dataset.modId),'fixture-042','keyboard focus remains on the selected row');
+  assert.match(await page.$eval('#settings-current-mod',el=>el.textContent),/fixture-042/);
+  await setInput('#settings-search','FIXTURE-073');
+  assert.deepEqual(await page.$$eval('#mod-select option',els=>els.map(el=>el.value)),['fixture-042','fixture-073']);
+  await setInput('#settings-search','not-a-real-mod');
+  assert.match(await page.$eval('#settings-search-status',el=>el.textContent),/일치하는 모드가 없습니다/);
+  assert.match(await page.$eval('#settings-mod-list',el=>el.textContent),/일치하는 모드가 없습니다/);
+  assert.match(await page.$eval('#settings-current-mod',el=>el.textContent),/fixture-042/,'selection stays visible when the filter hides it');
+  assert.equal(await page.$eval('#mod-select',el=>el.value),'fixture-042');
+  await setInput('#settings-search','');
+  assert.equal(await page.$$eval('#mod-select option',els=>els.length),100);
+  assert.equal(await page.$eval('#settings-mod-list button[data-mod-id="fixture-042"]',el=>el.getAttribute('aria-pressed')),'true');
+  await setInput('#settings-search','not-a-real-mod');
+  await page.click('#tab-active');await page.click('#active-mods [data-mod-id="fixture-000"] button');
+  assert.equal(await page.$eval('#settings-search',el=>el.value),'','opening a mod from another tab clears the settings filter');
+  await page.select('#mod-select','fixture-042');
+  await page.select('#mod-select','fixture-000');
+  fs.mkdirSync(path.join(dir,'test-output'),{recursive:true});
+  for(const width of [1280,390]){
+    await page.setViewport({width,height:900});
+    for(const tab of ['active','updates','settings']){
+      await page.click('#tab-'+tab);
+      assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,`${width} ${tab}: horizontal overflow`);
+      if (tab === 'settings') await page.screenshot({path:path.join(dir,'test-output',`settings-list-${width}.png`),fullPage:true});
+    }
+    await page.click('#tab-active');
+    const size=await page.$eval('#active-mods',el=>({height:el.clientHeight,content:el.scrollHeight}));
+    assert.ok(size.height<=520 && size.content>size.height,`${width}: list must scroll within its bound`);
+    await page.screenshot({path:path.join(dir,'test-output',`bulk-fixture-${width}.png`),fullPage:true});
+  }
+  await page.setViewport({width:1280,height:900});await page.click('#tab-updates');await page.click('#check-all');await idle();
+  assert.deepEqual(await page.$$eval('#ready-mods li',els=>els.map(el=>el.dataset.modId)),Array.from({length:6},(_,i)=>'fixture-00'+i));
+  assert.equal(await page.$('#password'),null);
+  await page.click('#change-password');await page.waitForSelector('#password-dialog[open]');
+  await page.$eval('#default-password',el=>el.value='shared-choice');
+  await page.click('#password-dialog button[value=save]');await idle();
+  await page.click('#tab-updates');await select(['000','001','002']);await page.click('#bulk-folder');await idle();
+  await page.click('#bulk-update');await page.waitForSelector('#confirm[open]');
+  const description=await page.$eval('#confirm-description',el=>el.textContent);
+  assert.match(description,/3개/);
+  for(const id of ['000','001','002'])assert.match(description,new RegExp(`fixture-${id}[\\s\\S]*1\\.0\\.0 → 1\\.1\\.0`));
+  assert.ok(!description.includes('fixture-003'));
+  const readsBeforeNotice=await page.evaluate(()=>__gameReads);
+  await page.evaluate(()=>__onUpdateNotice({type:'UPDATES_AVAILABLE',tabId:7},{id:'fixture-extension'}));
+  assert.equal(await page.evaluate(()=>__gameReads),readsBeforeNotice,'automatic refresh must wait for approval to close');
+  assert.equal(await page.$eval('#confirm-description',el=>el.textContent),description,'automatic notice must preserve pending consent');
+  await page.click('button[value="cancel"]');await idle();
+  await page.waitForFunction(reads=>__gameReads>reads,{},readsBeforeNotice);
+  assert.deepEqual(await page.evaluate(()=>[__downloads.length,__writes.length]),[0,0]);
+  await page.evaluate(()=>{__hold='fixture-000'});
+  await page.click('#bulk-update');await page.waitForSelector('#confirm[open]');await page.click('button[value="update"]');
+  await page.waitForFunction(()=>typeof __release==='function');
+  assert.deepEqual(await page.evaluate(()=>[__downloads.length,__writes.length]),[1,0]);
+  assert.equal(await page.$eval('#bulk-update',el=>el.disabled),true);
+  await page.evaluate(()=>document.querySelector('#bulk-update').click());
+  assert.equal(await page.$$eval('#queue-list li',els=>els.length),3);
+  const readsDuringInstall=await page.evaluate(()=>__gameReads);
+  await page.evaluate(()=>__onUpdateNotice({type:'UPDATES_AVAILABLE',tabId:7},{id:'fixture-extension'}));
+  assert.equal(await page.evaluate(()=>__gameReads),readsDuringInstall,'automatic refresh must wait until approved jobs finish');
+  await page.evaluate(()=>{__hold=null;__release()});await finished(3);
+  await page.waitForFunction(reads=>__gameReads>reads,{},readsDuringInstall);
+  await page.waitForFunction(()=>[...document.querySelectorAll('#active-mods [data-mod-id="fixture-000"] .mod-status')].some(el=>el.textContent.includes('적용 완료')));
+  assert.deepEqual(await page.$$eval('#ready-mods [data-mod-id]',els=>els.map(el=>el.dataset.modId)),['fixture-003','fixture-004','fixture-005'],'deferred cached metadata must not offer completed installs again');
+  assert.deepEqual(await page.evaluate(()=>__downloads.map(item=>[item.modId,item.password])),['000','001','002'].map(id=>['fixture-'+id,'shared-choice']));
+  assert.deepEqual(await page.evaluate(()=>__events),['download:fixture-000','write:fixture-000','download:fixture-001','write:fixture-001','download:fixture-002','write:fixture-002']);
+  await select(['003','004','005']);await page.evaluate(()=>{__hold='fixture-003';__disableAfter='fixture-003';delete globalThis.__release});
+  await page.click('#bulk-update');await page.waitForSelector('#confirm[open]');await page.click('button[value="update"]');
+  await page.waitForFunction(()=>typeof __release==='function');
+  await page.evaluate(()=>{__inactive.push('fixture-004');__hold=null;__release()});await finished(6);
+  assert.deepEqual(await page.evaluate(()=>__downloads.map(item=>item.modId)),['fixture-000','fixture-001','fixture-002','fixture-003','fixture-005']);
+  assert.deepEqual(await page.evaluate(()=>__downloads.slice(-2).map(item=>item.password)),['shared-choice','shared-choice'],'bulk updates use the default even for mods whose settings were never opened');
+  assert.deepEqual(await page.evaluate(()=>__writes),['fixture-000','fixture-001','fixture-002','fixture-005']);
+  assert.equal(await page.$$eval('#queue-list [data-state="failed"]',els=>els.length),2);
+  await page.evaluate(()=>{
+    __gameDocumentId='second-document';
+    __mods=[{...__mods[0],modId:'new-enabled-mod',modName:'Newly enabled mod',cachedRelease:{...__mods[0].cachedRelease,modId:'new-enabled-mod'}}];
+    __onUpdateNotice({type:'UPDATES_AVAILABLE',tabId:7},{id:'fixture-extension'});
+  });
+  await page.waitForFunction(()=>document.querySelector('#ready-mods [data-mod-id="new-enabled-mod"]'));
+  assert.deepEqual(await page.$$eval('#active-mods [data-mod-id]',els=>els.map(el=>el.dataset.modId)),['new-enabled-mod'],'a new game document replaces the old active list');
+  assert.equal(await page.$eval('#mod-select',el=>el.value),'new-enabled-mod');
+  await page.evaluate(()=>{
+    __mods.push({...__mods[0],modId:'same-document-mod',cachedRelease:{...__mods[0].cachedRelease,modId:'same-document-mod'}});
+    __onUpdateNotice({type:'UPDATES_AVAILABLE',tabId:7},{id:'fixture-extension'});
+  });
+  await page.waitForFunction(()=>document.querySelector('#ready-mods [data-mod-id="same-document-mod"]'));
+  assert.equal(await page.$$eval('#mod-select option',els=>els.length),2,'active-set changes on the same document rebuild selection options');
+  await page.evaluate(()=>{
+    __mods.push({...__mods[0],modId:'fixture-000',cachedRelease:{...__mods[0].cachedRelease,modId:'fixture-000'}});
+    __onUpdateNotice({type:'UPDATES_AVAILABLE',tabId:7},{id:'fixture-extension'});
+  });
+  await page.waitForFunction(()=>document.querySelector('#ready-mods [data-mod-id="fixture-000"]'));
+  assert.equal(await page.$$eval('#mod-select option',els=>els.length),3,'completed suppression belongs to the original game document only');
+  await page.evaluate(()=>{__gameVersion='faith-3.3.2';__gameFamily='faith';__mods=__mods.map(mod=>({...mod,cachedRelease:null}));__onUpdateNotice({type:'UPDATES_AVAILABLE',tabId:7},{id:'fixture-extension'});});
+  await page.waitForFunction(()=>document.querySelector('#game-version').textContent==='faith-3.3.2');await idle();
+  assert.equal(await page.$$eval('#ready-mods [data-mod-id]',els=>els.length),0,'switching game families on the same document clears stale update candidates');
+  await page.evaluate(()=>{__gameVersion='2026-11-01';__gameFamily='wayward';__onUpdateNotice({type:'UPDATES_AVAILABLE',tabId:7},{id:'fixture-extension'});});
+  await page.waitForFunction(()=>document.querySelector('#game-version').textContent==='2026-11-01');await idle();
+  const pickerCount=await page.evaluate(()=>__pickerCalls.length);
+  await page.evaluate(()=>{
+    __nativeEnabled=true;delete globalThis.__savedFolder;
+    __mods=[{...__mods[0],modId:'sound-mod',modName:'Sound Mod',modVersion:'1.0.0',cachedRelease:null}];
+    __gameDocumentId='native-document';
+  });
+  await page.click('#refresh-active');await idle();
+  assert.equal(await page.evaluate(()=>__nativeHandles.length),1);
+  assert.equal(await page.evaluate(()=>__pickerCalls.length),pickerCount,'detected native path connects without a folder picker');
+  assert.match(await page.$eval('#bulk-folder-status',el=>el.textContent),/auto-game.*감지 경로 자동 연결/);
+  const translatedTitle=await page.$eval('#active-mods [data-mod-id="sound-mod"] strong',el=>el.textContent);
+  assert.match(translatedTitle,/[가-힣]/,'an English-only known mod receives a Korean display alias');
+  assert.match(translatedTitle,/Sound Mod/,'the original name is retained alongside the Korean alias');
+  await page.click('#bulk-folder');await idle();
+  assert.equal(await page.evaluate(()=>__nativeHandles[0].disconnected),true,'switching to a custom path closes the unused native connection');
+  assert.equal(await page.evaluate(()=>__savedFolder.handle.name),'fixture-game');
+  await page.click('#refresh-active');await idle();
+  assert.equal(await page.evaluate(()=>__nativeHandles.length),1,'a saved custom path takes precedence over automatic detection');
+  assert.match(await page.$eval('#bulk-folder-status',el=>el.textContent),/fixture-game.*저장한 사용자 경로 연결/);
+  await page.click('#use-detected-folder');await idle();
+  assert.equal(await page.evaluate(()=>!!globalThis.__savedFolder),false,'returning to detection removes the custom override');
+  assert.equal(await page.evaluate(()=>__nativeHandles.length),2);
+  assert.match(await page.$eval('#bulk-folder-status',el=>el.textContent),/auto-game.*감지 경로 자동 연결/);
+  await page.click('#refresh-active');await idle();
+  assert.deepEqual(await page.evaluate(()=>__nativeHandles.map(handle=>handle.disconnected)),[true,true,false],'refresh replaces and closes the previous idle native connection');
+  assert.equal(await page.evaluate(()=>__pickerCalls.length),pickerCount+1,'only explicit path change opens a folder picker');
+  assert.deepEqual(failures,[]);
+  console.log('Bulk UI passed: 100 mods; Korean/English/ID/NFKC search; keyboard tabs; 1280/390 bounded layout; newer-only list; subset consent/cancel; passwords; ordered queue; duplicate blocking; inactive before download/write; failure continuation; native auto-connect, custom override, detected-path return and idle connection cleanup. Mock files only.');
+} finally { if(browser)await browser.close();await new Promise(resolve=>server.close(resolve)); }
