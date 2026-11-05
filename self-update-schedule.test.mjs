@@ -17,7 +17,7 @@ globalThis.chrome={
   }}
 };
 const wait=async condition=>{for(let i=0;i<100;i++){if(condition())return;await new Promise(resolve=>setTimeout(resolve,5));}assert.ok(condition());};
-const checkNow=startSelfUpdates();
+const checkNow=startSelfUpdates({findRelease:async()=>({version:'0.7.1',postURL:'https://kone.gg/s/wayward-wml/cxDZPwAi6ZQYfWwmovNAeb',zip:{url:'https://kio.ac/c/dDt9ZC8_D_KbDWKWJiNkeb',fileName:'Mod-Update-Helper-User-0.7.1.zip',size:4},envelope:'{"signed":1}'})});
 await wait(()=>releaseConfirm);
 assert.equal(created.length,0,'worker restart must preserve the existing periodic alarm');
 alarm({name:'helper-update-check'});
@@ -34,7 +34,7 @@ const count=calls.length;
 await new Promise(resolve=>setTimeout(resolve,20));
 assert.equal(calls.length,count,'a persistent error must not spin');
 failConfirm=false; existing=null;
-startSelfUpdates();
+startSelfUpdates({findRelease:async()=>({version:'0.7.1',postURL:'https://kone.gg/s/wayward-wml/cxDZPwAi6ZQYfWwmovNAeb',zip:{url:'https://kio.ac/c/dDt9ZC8_D_KbDWKWJiNkeb',fileName:'Mod-Update-Helper-User-0.7.1.zip',size:4},envelope:'{"signed":1}'})});
 await wait(()=>created.some(item=>item.name==='helper-update-check'));
 assert.equal(created.filter(item=>item.name==='helper-update-check').length,1,'a missing periodic alarm is recreated');
 await wait(()=>calls.length>count);

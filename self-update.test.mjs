@@ -13,7 +13,7 @@ const current=path.join(root,'extension');fs.mkdirSync(current);
 const {privateKey}=crypto.generateKeyPairSync('rsa',{modulusLength:2048});
 const key=privateKey.export({type:'pkcs8',format:'pem'});
 const config={schema:1,repository:'aip97/test-release',publicKey:publicKeyOf(key)};
-const files=['manifest.json','worker.mjs','update.html','native-host.ps1','native-defender.ps1','native-self-update.ps1','self-update-config.json','core.mjs','installer.mjs','game-compat.mjs','self-update.mjs'];
+const files=['manifest.json','worker.mjs','update.html','native-host.ps1','native-defender.ps1','native-self-update.ps1','self-update-config.json','core.mjs','installer.mjs','game-compat.mjs','self-update.mjs','helper-release.mjs'];
 const manifest={...JSON.parse(fs.readFileSync(path.join(dir,'manifest.json'))),version:'0.7.0'};
 for(const name of files) fs.copyFileSync(path.join(dir,name),path.join(current,name));
 fs.writeFileSync(path.join(current,'manifest.json'),JSON.stringify(manifest));
@@ -53,6 +53,22 @@ Reject {SelfPath $root '../outside'}
 Reject {SelfPath $root 'extension/file:stream'}
 Reject {SelfPath $root 'extension/con.txt'}
 $zip=[IO.File]::ReadAllBytes((Join-Path $root $release.asset))
+$fromPost=SelfReadRelease @{envelope=[IO.File]::ReadAllText((Join-Path $root 'release.json'))} $config
+Assert ($fromPost.version -eq '0.7.1') 'Envelope passed by the extension was not verified'
+Reject {SelfReadRelease @{} $config}
+Reject {SelfTakeUpload}
+$half=[int]($zip.Length/2)
+$first=[Convert]::ToBase64String($zip,0,$half);$second=[Convert]::ToBase64String($zip,$half,$zip.Length-$half)
+Reject {SelfUpload @{offset=5;total=$zip.Length;data=$first}}
+[void](SelfUpload @{offset=0;total=$zip.Length;data=$first})
+Reject {SelfUpload @{offset=1;total=$zip.Length;data=$second}}
+Reject {SelfTakeUpload}
+[void](SelfUpload @{offset=0;total=$zip.Length;data=$first})
+[void](SelfUpload @{offset=$half;total=$zip.Length;data=$second})
+Reject {SelfUpload @{offset=$zip.Length;total=$zip.Length;data=$second}}
+$received=SelfTakeUpload
+Assert ($received.Length -eq $zip.Length -and (SelfHash $received) -eq (SelfHash $zip)) 'Uploaded ZIP differs'
+Reject {SelfTakeUpload}
 $bad=$zip.Clone();$bad[40]=$bad[40] -bxor 255
 Reject {SelfStage $root $bad $release $config}
 function DefenderScanBytes([byte[]]$bytes) { throw 'Defender threat or scan failure' }
@@ -84,7 +100,7 @@ $restored=Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $root 'extensi
 Assert ($restored.version -eq '0.7.0') 'Recovery did not restore the previous version'
 $result=Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $root 'self-update-result.json') | ConvertFrom-Json
 Assert ($result.state -eq 'rolled-back') 'Recovery result missing'
-Write-Output 'Signature, tamper rejection, native lease, swap, acknowledgement and failed-start recovery passed.'
+Write-Output 'Signature, extension-supplied envelope, ordered ZIP upload, tamper rejection, native lease, swap, acknowledgement and failed-start recovery passed.'
 `;
 fs.writeFileSync(path.join(root,'verify.ps1'),'\ufeff'+harness);
 console.log(execFileSync('powershell.exe',['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',path.join(root,'verify.ps1')],{encoding:'utf8',windowsHide:true,timeout:30000}).trim());

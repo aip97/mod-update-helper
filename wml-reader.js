@@ -1,6 +1,6 @@
 (() => {
   if (window.top !== window || !/\.html?$/i.test(location.pathname)) return;
-  if (window.__wmlUpdaterReader?.version === '0.8.0') return;
+  if (window.__wmlUpdaterReader?.version === '0.8.1') return;
   window.__wmlUpdaterReader?.dispose?.();
   const plain = value => typeof value === 'string' && value.length > 0 && value.length <= 64 && !/[\x00-\x1f]/.test(value);
   const read = event => {
@@ -28,5 +28,5 @@
     window.postMessage({type: 'WML_UPDATER_SNAPSHOT', requestId: request.requestId, snapshot}, '*');
   };
   window.addEventListener('message', read);
-  window.__wmlUpdaterReader={version:'0.8.0',dispose(){window.removeEventListener('message',read);}};
+  window.__wmlUpdaterReader={version:'0.8.1',dispose(){window.removeEventListener('message',read);}};
 })();

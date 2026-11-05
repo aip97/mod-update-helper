@@ -212,7 +212,7 @@ class AdminClientTests(unittest.TestCase):
                 {'mod_id':'same-mod','game_family':'overtime','name':'OT Mod','version':'2.0.0'}]
         label = SimpleNamespace(configure=lambda **kw: None)
         blank = SimpleNamespace(delete=lambda *args: None)
-        app = SimpleNamespace(discard_ok=lambda: True, client=SimpleNamespace(pending=lambda:[],published=lambda:rows),
+        app = SimpleNamespace(selected=None, discard_ok=lambda: True, client=SimpleNamespace(pending=lambda:[],published=lambda:rows),
             trees={'pending':pending,'published':published}, rows={}, fields={}, description=blank, note=blank,
             record_title=label, record_info=label, status=label, update_actions=lambda:None,
             run=lambda label,task,done: done(task()))
@@ -220,6 +220,70 @@ class AdminClientTests(unittest.TestCase):
         self.assertEqual(set(app.rows['published']), {'faith:same-mod','overtime:same-mod'})
         self.assertEqual(published.records['faith:same-mod'][1], 'Faith')
         self.assertEqual(published.records['overtime:same-mod'][1], 'Overtime')
+
+    def test_refresh_preserves_note_only_for_same_unchanged_submission(self):
+        class Entry:
+            def __init__(self, value=''): self.value=value
+            def get(self, *_): return self.value
+            def delete(self, *_): self.value=''
+            def insert(self, _, value): self.value=value
+        class Tree:
+            def __init__(self): self.records={}; self.current=()
+            def get_children(self): return tuple(self.records)
+            def delete(self, *keys):
+                for key in keys: self.records.pop(key)
+                self.current=()
+            def insert(self, parent, where, *, iid, values): self.records[iid]=values
+            def selection_set(self, key): self.current=(key,)
+            def selection(self): return self.current
+        labels=[]
+        label=SimpleNamespace(configure=lambda **kw: labels.append(kw.get('text')))
+        row={'id':'one','mod_id':'sample','game_family':'wayward','name':'Sample',
+             'version':'1.0.0','revision':4,'verification':'manual_review','description':'Description'}
+        second={**row,'id':'two','name':'Other','revision':1}
+        note=Entry('직접 확인한 심사 메모')
+        app=SimpleNamespace(selected=('pending','one'),saved={},busy=False,rows={'pending':{'one':row},'published':{}},
+            trees={'pending':Tree(),'published':Tree()},fields={},description=Entry(),note=note,
+            record_title=label,record_info=label,status=label,root=None,update_actions=lambda:None,
+            discard_ok=lambda:True,client=SimpleNamespace(pending=lambda:[{**row,'revision':5},second],published=lambda:[]),
+            run=lambda label,task,done:done(task()))
+        app.select=lambda kind: AdminApp.select(app,kind)
+        AdminApp.refresh(app,discard=False,expected_revision=5)
+        self.assertEqual(app.selected,('pending','one'))
+        self.assertEqual(app.rows['pending']['one']['revision'],5)
+        self.assertEqual(note.get(),'직접 확인한 심사 메모')
+        app.trees['pending'].selection_set('two')
+        app.select('pending')
+        self.assertEqual(app.selected,('pending','two'))
+        self.assertEqual(note.get(),'')
+        note.value='오래된 검토 메모'
+        app.client.pending=lambda:[row,{**second,'revision':2}]
+        AdminApp.refresh(app)
+        self.assertEqual(app.selected,('pending','two'))
+        self.assertEqual(note.get(),'')
+        self.assertTrue(any('다른 변경' in (item or '') for item in labels))
+        note.value='완료 전 메모'
+        app.client.pending=lambda:[row]
+        AdminApp.refresh(app)
+        self.assertIsNone(app.selected)
+        self.assertEqual(note.get(),'')
+
+    def test_save_and_manual_verification_preserve_only_the_expected_revision(self):
+        values={'name':'Sample','post_url':'https://kone.gg/s/a/abcdefghijklmnopqrstuv',
+                'wml_versions':['0.9.5'],'game_spec':'','category':'유틸','version':'1.0.0',
+                'description':'Description','api_version':None}
+        row={'id':'one','mod_id':'sample','game_family':'wayward','revision':4,**values}
+        refreshes=[];calls=[]
+        app=SimpleNamespace(selected=('pending','one'),busy=False,rows={'pending':{'one':row}},
+            payload=lambda:values,is_dirty=lambda:False,note=SimpleNamespace(get=lambda:'직접 검증'),
+            status=SimpleNamespace(configure=lambda **kw:None),root=None,
+            client=SimpleNamespace(rpc=lambda name,payload:calls.append((name,payload))),
+            refresh=lambda **kwargs:refreshes.append(kwargs),run=lambda label,task,done:(task(),done(None)))
+        AdminApp.save(app)
+        with patch('admin.messagebox.askyesno',return_value=True):
+            AdminApp.mark_reviewed(app)
+        self.assertEqual([item[0] for item in calls],['wiki_edit_submission','wiki_mark_manual_review'])
+        self.assertEqual(refreshes,[{'discard':False,'expected_revision':5},{'discard':False,'expected_revision':5}])
 
     def test_family_change_error_explains_new_registration(self):
         error = urllib.error.HTTPError('https://example.invalid', 400, 'bad', {},

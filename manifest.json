@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "모드 업데이트 도우미",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "minimum_chrome_version": "111",
   "description": "설치된 모드의 새 버전을 확인하고 파일 검증, 백업, 업데이트와 롤백을 지원합니다.",
   "permissions": [

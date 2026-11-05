@@ -328,9 +328,13 @@ class AdminApp:
         self.status.configure(text='변경 후 저장하세요.' if kind == 'published' else '내용을 검토하고 승인 또는 반려하세요.')
         self.update_actions()
 
-    def refresh(self, *, discard=True):
+    def refresh(self, *, discard=True, expected_revision=None):
         if discard and not self.discard_ok():
             return
+        previous = self.selected
+        previous_note = self.note.get() if previous else ''
+        if previous and expected_revision is None:
+            expected_revision = self.rows.get(previous[0], {}).get(previous[1], {}).get('revision')
         def load():
             return self.client.pending(), self.client.published()
         def done(values):
@@ -358,6 +362,14 @@ class AdminApp:
             for field in self.fields.values(): field.delete(0, tk.END)
             self.description.delete('1.0', tk.END); self.note.delete(0, tk.END)
             self.status.configure(text=f'승인 대기 {len(pending)}건 · 공개 모드 {len(published)}개')
+            if previous and previous[1] in self.rows[previous[0]]:
+                kind, key = previous
+                self.trees[kind].selection_set(key)
+                self.select(kind)
+                if self.rows[kind][key].get('revision') == expected_revision:
+                    self.note.insert(0, previous_note)
+                elif previous_note:
+                    self.status.configure(text='다른 변경이 감지되어 심사 메모를 초기화했습니다. 내용을 다시 확인해 주세요.')
             self.update_actions()
         self.run('목록을 불러오고 있습니다…', load, done)
 
@@ -378,7 +390,8 @@ class AdminApp:
         else:
             params.update(p_mod_id=row['mod_id'], p_game_family=family_of(row))
         operation = 'wiki_edit_submission' if kind == 'pending' else 'wiki_edit_mod'
-        self.run('변경사항을 저장하고 있습니다…', lambda: self.client.rpc(operation, params), lambda _: self.refresh(discard=False))
+        self.run('변경사항을 저장하고 있습니다…', lambda: self.client.rpc(operation, params),
+                 lambda _: self.refresh(discard=False, expected_revision=row['revision'] + 1))
 
     def review(self, decision):
         if not self.selected or self.selected[0] != 'pending' or self.busy:
@@ -424,7 +437,7 @@ class AdminApp:
             return
         params = {'p_submission_id': self.selected[1], 'p_expected_revision': row['revision'], 'p_note': note}
         self.run('검증 결과를 기록하고 있습니다…', lambda: self.client.rpc('wiki_mark_manual_review', params),
-                 lambda _: self.refresh(discard=False))
+                 lambda _: self.refresh(discard=False, expected_revision=row['revision'] + 1))
 
     def open_post(self):
         if not self.selected or self.busy:

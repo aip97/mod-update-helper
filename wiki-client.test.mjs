@@ -26,6 +26,8 @@ globalThis.fetch=async()=>new Response('',{status:403});
 await assert.rejects(listWikiMods(),/403/);
 globalThis.fetch=async()=>new Response(JSON.stringify({error:'ZIP 버전 불일치'}),{status:400});
 await assert.rejects(submitWikiMod('create',{}),/ZIP 버전 불일치/);
+globalThis.fetch=async()=>new Response(JSON.stringify({error:'이 모드는 이미 검토 대기 중입니다.'}),{status:400});
+await assert.rejects(submitWikiMod('create',{}),error=>error.code==='WIKI_ALREADY_PENDING');
 globalThis.fetch=async()=>{throw new TypeError('network unavailable')};
 await assert.rejects(submitWikiMod('create',{}),error=>error.code==='SUBMISSION_UNKNOWN');
 console.log('Wiki client: public read, validated lookup, credential-free submission and failures passed.');

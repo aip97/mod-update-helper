@@ -126,7 +126,7 @@ export async function downloadKioApi({url, version, modId = 'attention-image-pro
   return downloadKioFile({url,fileName,password});
 }
 export async function downloadKioFile({url,fileName,password,maxBytes=MAX_BYTES}) {
-  need(typeof fileName==='string' && fileName.length<=240 && !/[\\/\x00-\x1f]/.test(fileName) && fileName.endsWith('.zip'), '배포 파일명이 올바르지 않습니다.');
+  need(typeof fileName==='string' && fileName.length<=240 && !/[\\/\x00-\x1f]/.test(fileName) && /\.(?:zip|json)$/.test(fileName), '배포 파일명이 올바르지 않습니다.');
   need(Number.isSafeInteger(maxBytes) && maxBytes>0 && maxBytes<=512*1024*1024,'다운로드 제한이 올바르지 않습니다.');
   const {files, cat, segmentSize} = await collectionFiles(url, password);
   const candidates = files.filter(file => get(file, 'name') === fileName);

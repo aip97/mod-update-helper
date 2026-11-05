@@ -9,7 +9,10 @@ import {scanDownloadedZip} from './defender-scan.mjs';
 import {holdUpdaterWindow} from './self-update.mjs';
 import {initGameUpdater} from './game-update-ui.mjs';
 import {initWikiUI} from './wiki-ui.mjs';
-const selfUpdater=await holdUpdaterWindow();
+const selfUpdater=await holdUpdaterWindow({download:async ({url,fileName}) => {
+  const [{downloadKioFile},{HELPER_ZIP_LIMIT},{kioDefaultPassword}]=await Promise.all([import('./kio-api.mjs'),import('./helper-release.mjs'),chrome.storage.local.get('kioDefaultPassword')]);
+  return downloadKioFile({url,fileName,password:typeof kioDefaultPassword==='string' ? kioDefaultPassword : undefined,maxBytes:HELPER_ZIP_LIMIT});
+}});
 let gameUpdater, wikiUI;
 const $ = id => document.getElementById(id);
 let defaultPassword = '', passwordConfigured = false;
@@ -480,7 +483,13 @@ async function askPassword(force = false) {
 $('change-password').onclick = async () => {
   if (busy || diagnosing || approval) return;
   busy=true; refreshButtons();
-  try { if (await askPassword(true)) $('progress').textContent='기본 비밀번호를 저장했습니다. 다음 업데이트부터 사용합니다.'; }
+  try {
+    if (await askPassword(true)) {
+      $('progress').textContent='기본 비밀번호를 저장했습니다. 다음 업데이트부터 사용합니다.';
+      const {helperUpdateStatus}=await chrome.storage.local.get('helperUpdateStatus');
+      if (helperUpdateStatus?.state === 'password_required') message({type:'CHECK_HELPER_UPDATE'}).catch(() => {});
+    }
+  }
   catch(e) { error(e.message); }
   finally { busy=false; refreshButtons(); }
 };

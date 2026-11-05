@@ -8,7 +8,7 @@ $files = @(
     'folder-store.mjs', 'kio.js', 'kio-api.mjs', 'update.html', 'update.css', 'update.mjs',
     'vendor/cbor-x-1.6.4.mjs', 'vendor/cbor-x-LICENSE', 'THIRD_PARTY_NOTICES.md',
     'native-filesystem.mjs', 'native-host.ps1', 'native-host.cmd', 'native-install.ps1', 'defender-scan.mjs', 'native-defender.ps1', 'wiki-client.mjs', 'wiki-ui.mjs', 'wiki-install.mjs', 'wiki-auto.mjs',
-    'self-update.mjs','self-update-config.json','native-self-update.ps1','native-bootstrap.ps1','native-bootstrap.cmd',
+    'self-update.mjs','helper-release.mjs','self-update-config.json','native-self-update.ps1','native-bootstrap.ps1','native-bootstrap.cmd',
   'game-release.mjs','game-installer.mjs','game-update-ui.mjs','native-game-update.ps1',
     'GUIDE.html', 'Install.cmd', 'install.ps1'
 )

@@ -1,6 +1,7 @@
 import {compareVersions, parseReleaseHTML, analyzeRelease, analyzeReleaseHTML, validateSnapshot, enrichMod, validateModId, validatePostURL, validateReleaseURL} from './core.mjs';
 import {findKioRelease, downloadKioApi} from './kio-api.mjs';
 import {startSelfUpdates} from './self-update.mjs';
+import {helperPostURL, findHelperRelease} from './helper-release.mjs';
 import {gameSource,findGameRelease} from './game-release.mjs';
 import {compareGameVersions, gameMatches, parseGameRequirement} from './game-compat.mjs';
 import {getWikiSources,submitWikiMod} from './wiki-client.mjs';
@@ -165,9 +166,11 @@ const queueWikiAuto = createWikiAuto({
       const key='wiki-auto-retry-'+game.tabId;
       const [{wikiAutoSubmit},stored] = await Promise.all([chrome.storage.local.get('wikiAutoSubmit'),chrome.storage.session.get('game-'+game.tabId)]);
       if (wikiAutoSubmit !== true || stored['game-'+game.tabId]?.documentId !== game.documentId) return;
-      await chrome.storage.session.set({[key]:game.documentId});
       const previous = await chrome.alarms.get(key);
-      if (!previous || previous.scheduledTime > when) await chrome.alarms.create(key,{when});
+      const replace = !previous || previous.scheduledTime > when;
+      const scheduledTime = replace ? when : previous.scheduledTime;
+      await chrome.storage.session.set({[key]:{documentId:game.documentId,scheduledTime}});
+      if (replace) await chrome.alarms.create(key,{when:scheduledTime});
     });
   },
 });
@@ -460,7 +463,14 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   })().then(respond, error => respond({ok: false, error: error.message, code: error.code || 'INVALID_REQUEST'}));
   return true;
 });
-const checkHelperUpdate = startSelfUpdates();
+async function findHelperUpdate() {
+  const postURL = await helperPostURL();
+  try {
+    const saved = await passwordSettings();
+    return await findHelperRelease({html:await fetchPostHTML(postURL), postURL, password:saved.passwordConfigured ? saved.defaultPassword : undefined});
+  } catch (error) { error.postURL ??= postURL; throw error; }
+}
+const checkHelperUpdate = startSelfUpdates({findRelease:findHelperUpdate});
 
 for (const event of [chrome.runtime.onInstalled,chrome.runtime.onStartup]) event?.addListener(() => { void connectGame().then(game => game && notifyUpdates(game)).catch(() => {}); });
 if(chrome.alarms?.onAlarm) {
@@ -470,10 +480,15 @@ if(chrome.alarms?.onAlarm) {
     if (retry) {
       void (async()=>{
         const tabId=Number(retry[1]), key='wiki-auto-retry-'+tabId;
-        const values=await chrome.storage.session.get([key,'game-'+tabId]);
-        await chrome.storage.session.remove(key);
-        const game=values['game-'+tabId];
-        if(game && game.documentId===values[key]) queueWikiAuto(game);
+        const game=await mutate(async()=>{
+          const values=await chrome.storage.session.get([key,'game-'+tabId]);
+          const marker=values[key];
+          if (marker && typeof marker==='object' && Number.isFinite(alarm.scheduledTime) && marker.scheduledTime!==alarm.scheduledTime) return null;
+          await chrome.storage.session.remove(key);
+          const current=values['game-'+tabId], documentId=typeof marker==='string' ? marker : marker?.documentId;
+          return current && current.documentId===documentId ? current : null;
+        });
+        if(game) queueWikiAuto(game);
       })().catch(()=>{});
       return;
     }

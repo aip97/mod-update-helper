@@ -57,41 +57,6 @@ function SelfConfig([string]$root) {
     SelfNeed ($config.publicKey.modulus -is [string] -and $config.publicKey.exponent -is [string]) 'Missing release verification key.'
     return $config
 }
-function SelfReadWeb([string]$address, [int]$limit) {
-    Add-Type -AssemblyName System.Net.Http
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    $handler = New-Object Net.Http.HttpClientHandler
-    $handler.AllowAutoRedirect = $false; $handler.UseCookies = $false
-    $client = New-Object Net.Http.HttpClient($handler)
-    $client.Timeout = [TimeSpan]::FromSeconds(30)
-    $client.DefaultRequestHeaders.UserAgent.ParseAdd('Mod-Update-Helper/0.7')
-    try {
-        for ($redirect = 0; $redirect -lt 6; $redirect++) {
-            $uri = New-Object Uri($address)
-            SelfNeed ($uri.Scheme -eq 'https' -and -not $uri.UserInfo -and $uri.Port -eq 443 -and $uri.Host -in @('github.com','release-assets.githubusercontent.com','objects.githubusercontent.com')) 'Release download left the allowed GitHub hosts.'
-            $response = $client.GetAsync($uri, [Net.Http.HttpCompletionOption]::ResponseHeadersRead).GetAwaiter().GetResult()
-            try {
-                if ([int]$response.StatusCode -in @(301,302,303,307,308)) {
-                    SelfNeed ($null -ne $response.Headers.Location) 'Missing release redirect.'
-                    $address = (New-Object Uri($uri, $response.Headers.Location)).AbsoluteUri; continue
-                }
-                SelfNeed ([int]$response.StatusCode -eq 200) ('GitHub release request failed (' + [int]$response.StatusCode + ').')
-                SelfNeed ($null -eq $response.Content.Headers.ContentLength -or $response.Content.Headers.ContentLength -le $limit) 'Release response is too large.'
-                $stream = $response.Content.ReadAsStreamAsync().GetAwaiter().GetResult(); $memory = New-Object IO.MemoryStream
-                try {
-                    $buffer = New-Object byte[] 65536
-                    $deadline = New-Object Threading.CancellationTokenSource(30000)
-                    while (($count = $stream.ReadAsync($buffer, 0, $buffer.Length, $deadline.Token).GetAwaiter().GetResult()) -gt 0) {
-                        SelfNeed ($memory.Length + $count -le $limit) 'Release response is too large.'
-                        $memory.Write($buffer, 0, $count)
-                    }
-                    return ,$memory.ToArray()
-                } finally { if ($deadline) { $deadline.Dispose() }; $stream.Dispose(); $memory.Dispose() }
-            } finally { $response.Dispose() }
-        }
-        throw 'Too many release redirects.'
-    } finally { $client.Dispose(); $handler.Dispose() }
-}
 function SelfVerifyRelease([byte[]]$envelopeBytes, $config) {
     SelfNeed ($envelopeBytes.Length -le 131072) 'Release metadata is too large.'
     $encoding = New-Object Text.UTF8Encoding($false, $true)
@@ -122,9 +87,26 @@ function SelfVerifyRelease([byte[]]$envelopeBytes, $config) {
     foreach ($name in @('manifest.json','worker.mjs','update.html','native-host.ps1','native-self-update.ps1','self-update-config.json')) { SelfNeed ($paths.Contains($name)) ('Missing release file: ' + $name) }
     return $release
 }
-function SelfReadRelease($config) {
-    $bytes = SelfReadWeb ('https://github.com/' + $config.repository + '/releases/latest/download/wml-updater-release.json') 131072
-    return (SelfVerifyRelease $bytes $config)
+function SelfReadRelease($request, $config) {
+    # The extension reads the Kone release post and Kio collection; only the signed metadata is trusted here.
+    SelfNeed ($request.envelope -is [string] -and $request.envelope.Length -gt 0 -and $request.envelope.Length -le 131072) 'Signed release metadata is missing.'
+    return (SelfVerifyRelease ((New-Object Text.UTF8Encoding($false)).GetBytes($request.envelope)) $config)
+}
+function SelfUpload($request) {
+    SelfNeed ($request.offset -is [ValueType] -and $request.total -is [ValueType] -and $request.total -gt 0 -and $request.total -le 16777216 -and [Math]::Floor($request.offset) -eq $request.offset -and $request.data -is [string] -and $request.data.Length -gt 0 -and $request.data.Length -le 262144) 'Invalid update upload.'
+    if ($request.offset -eq 0) {
+        if ($script:selfUpload) { $script:selfUpload.Dispose() }
+        $script:selfUpload = New-Object IO.MemoryStream; $script:selfUploadTotal = [int64]$request.total
+    }
+    SelfNeed ($null -ne $script:selfUpload -and $request.offset -eq $script:selfUpload.Length -and $request.total -eq $script:selfUploadTotal) 'Update upload is out of order.'
+    $bytes = [Convert]::FromBase64String($request.data)
+    SelfNeed ($script:selfUpload.Length + $bytes.Length -le $script:selfUploadTotal) 'Update upload exceeds its declared size.'
+    $script:selfUpload.Write($bytes, 0, $bytes.Length)
+    return @{received=$script:selfUpload.Length}
+}
+function SelfTakeUpload {
+    SelfNeed ($null -ne $script:selfUpload -and $script:selfUpload.Length -eq $script:selfUploadTotal) 'The update ZIP was not received.'
+    try { return ,$script:selfUpload.ToArray() } finally { $script:selfUpload.Dispose(); $script:selfUpload = $null }
 }
 function SelfStage([string]$root, [byte[]]$zipBytes, $release, $config) {
     SelfNeed ($zipBytes.Length -eq $release.size -and (SelfHash $zipBytes) -ceq $release.sha256) 'Release ZIP hash or size mismatch.'
@@ -209,6 +191,7 @@ function SelfDispatch($request) {
         }
         return @{state='current';version=$current}
     }
+    if ($request.op -eq 'self-upload') { return (SelfUpload $request) }
     $config = SelfConfig $root
     if ($null -eq $config) { return @{state='unconfigured';version=$current} }
     SelfNeed ($request.op -in @('self-check','self-apply')) 'Unsupported updater operation.'
@@ -219,7 +202,7 @@ function SelfDispatch($request) {
             catch { return @{state='waiting';version=$current} }
             SelfNeed (-not [IO.File]::Exists((SelfPath $root 'self-update-pending.json'))) 'The last update is waiting for startup confirmation.'
         }
-        $release = SelfReadRelease $config
+        $release = SelfReadRelease $request $config
         if ((SelfVersion $release.version) -le (SelfVersion $current)) { return @{state='current';version=$current} }
         $resultFile = SelfPath $root 'self-update-result.json'
         if ([IO.File]::Exists($resultFile)) {
@@ -227,7 +210,7 @@ function SelfDispatch($request) {
             if ($result.state -eq 'rolled-back' -and $result.version -ceq $release.version) { return @{state='blocked';version=$current;latest=$release.version} }
         }
         if ($request.op -eq 'self-check') { return @{state='available';version=$current;latest=$release.version} }
-        $zip = SelfReadWeb ('https://github.com/' + $config.repository + '/releases/download/v' + $release.version + '/' + $release.asset) 16777216
+        $zip = SelfTakeUpload
         $stage = SelfStage $root $zip $release $config
         $bootstrap = SelfPath $root 'native-bootstrap.ps1'
         Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -WindowStyle Hidden -ArgumentList @('-NoLogo','-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',('"' + $bootstrap + '"'),('chrome-extension://' + $SelfExtensionId + '/'),'-RecoverAfterTimeout') | Out-Null

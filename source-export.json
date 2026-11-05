@@ -9,15 +9,15 @@
   },
   {
     "path": "GAME_UPDATE.md",
-    "sha256": "a48df7b08327ce394432bd0c466a31582484c950ee201efc70caff0e631ec000"
+    "sha256": "72f9804aee538ec048dccd3f7d77c4db2edac912a6d000616fe2b7e5b1f48d5e"
   },
   {
     "path": "GUIDE.html",
-    "sha256": "2763224564a963a6914209949d6ce15aae9077f2d1b5bd9c83e67f1f3551a310"
+    "sha256": "dd667983b9277e74d3725043e8411e9345fb55289973429ae2beefebc2dbf20a"
   },
   {
     "path": "GUIDE.template.html",
-    "sha256": "d5cf73200e822651913b8a8eecb4d990af24aadacf041b3d48d6f5a1962ad576"
+    "sha256": "66df5c2c60105204af5470dde54839eadb1053e87dee30a6328636770a2938bc"
   },
   {
     "path": "Install.cmd",
@@ -25,11 +25,11 @@
   },
   {
     "path": "README.md",
-    "sha256": "3c5b44f52952d2ff0836d5ad31e3f2057631e91e47bd83ce9c94dda612101bd6"
+    "sha256": "36660424237ce63d9ef9d4477ba5bdceffc2997526d7fd3dcd1b21593035c15d"
   },
   {
     "path": "RELEASING.md",
-    "sha256": "d03f5d8c780b755ba7d094cbfddf110e3bdac505d5923b9f3ce5faa4002f80c9"
+    "sha256": "119d544a0324a2b1e8f7ccb7f7f778dc4f6902489825d6583ba708aac7e4059b"
   },
   {
     "path": "THIRD_PARTY_NOTICES.md",
@@ -37,7 +37,7 @@
   },
   {
     "path": "USER_GUIDE.html",
-    "sha256": "eb56fc976e279002192d5b0555d0b3303ed29543503948f2a8544b403f09bec8"
+    "sha256": "199b6480f7d222c7046e8b32830549c20895ab765d894f4e578c6e3df51d73af"
   },
   {
     "path": "browser-test-deps.mjs",
@@ -133,7 +133,7 @@
   },
   {
     "path": "export-source.mjs",
-    "sha256": "743e6f6ff729f360ae4d16ea8f6614d095ef6543047fe44dfbc190aaa4f796e2"
+    "sha256": "7c4cbe8201abe5f6ae6294bae93461623e98e8ae2794071b01deb7f962db25c9"
   },
   {
     "path": "export-source.test.mjs",
@@ -145,7 +145,7 @@
   },
   {
     "path": "game-bridge.js",
-    "sha256": "e597bc8984da00aea8dbad4a6c714e1c875a3c4e5a48261823f7d0a8661d6970"
+    "sha256": "9363ffeb80465d63849b9004c01c27fd04356344f849a301afe260cb8e50fcba"
   },
   {
     "path": "game-compat.mjs",
@@ -176,12 +176,20 @@
     "sha256": "c8a16b68ef977a873c3d275a25ef7ba4c807c859cd92f29451ecee735ce9567a"
   },
   {
+    "path": "helper-release.mjs",
+    "sha256": "e0714f87a2d8dd150f0a778d038576916b9c517623a757c02f965f21f8d63d4a"
+  },
+  {
+    "path": "helper-release.test.mjs",
+    "sha256": "4f731f62c4914e9725b522c1a6d412b6be45d72b6303ddaa844a5e6d98fe0f99"
+  },
+  {
     "path": "install.ps1",
-    "sha256": "92d08e9173349a9c3b48676ba524fbe5636dc5509442e3f274bb8d09cc0840cd"
+    "sha256": "2fc8c342def3eae862433cb881206d606e4224f064c7ae35f50fe0337423660a"
   },
   {
     "path": "installer-tool-test.ps1",
-    "sha256": "f379483c9bd8052c8299745d0db93412c643172be2fac3312533e7b27cb0003d"
+    "sha256": "17afd482d71f9e28576e8dceb913a874511bf153261f89a13f094c1874910411"
   },
   {
     "path": "installer.mjs",
@@ -193,7 +201,7 @@
   },
   {
     "path": "kio-api.mjs",
-    "sha256": "c0dfaee9de021e2234aef4721fa2137456cbdfd726a9a2ab270b43040d771084"
+    "sha256": "ba0aa3ed39031ee37eb7b73a0733fa9d1da1e97ec9210d82010b3c28019f628d"
   },
   {
     "path": "kio-api.test.mjs",
@@ -205,7 +213,7 @@
   },
   {
     "path": "manifest.json",
-    "sha256": "5d785540476e0be0a6dab6b177fcd4a87c36c6633766966481277082b76629db"
+    "sha256": "c8f69d536650ee3d7e720c8173717f051ba60acc2c8d0d5404237abc72cee973"
   },
   {
     "path": "mod-names-ko.mjs",
@@ -253,19 +261,19 @@
   },
   {
     "path": "native-self-update.ps1",
-    "sha256": "3479f6eda42e28a2b13bd28f14f0ae8d9d7a48a0e187b2468f0f8e4a746eb54d"
+    "sha256": "c198fd641decb2d72ac9ea6fcb9e03f20b4e56efbfaf9e0edc4e732e08bc826f"
   },
   {
     "path": "package.json",
-    "sha256": "f46644b2fc7612b8ff25385cfaf558f1110cb64d664b6c2fafc7c3127d52ddb8"
+    "sha256": "73446a2161948460b3f7253b86f275db8072fb172bebbc678eb042d849cdea27"
   },
   {
     "path": "package.mjs",
-    "sha256": "ed14c67b5a92099cae690a70d9ad4c6e44c22efa32640f4114cc3e4f53d01a87"
+    "sha256": "cdbcd349638932ff9dc6cc4104839d7f3472122331c732d12fcd0375ed00f56f"
   },
   {
     "path": "package.test.mjs",
-    "sha256": "2d1f0fa0fc25aac7855504216ceb7cd875a85ffad6c51bccf192f5044ad4d69a"
+    "sha256": "7603ee40513088a9f5bd03fc13cde586c1afada98f8443a94d42f743ddfd20d7"
   },
   {
     "path": "post-diagnostics.test.mjs",
@@ -277,27 +285,27 @@
   },
   {
     "path": "self-update-config.json",
-    "sha256": "9c203db3da1085088d2d63c6d5dce4acf00749ead3a073063abfb0f811678aa7"
+    "sha256": "e461d51584c559449f47a3d56ffa2fb3657db52de5a34a29e8dab3c3b7ab67a6"
   },
   {
     "path": "self-update-schedule.test.mjs",
-    "sha256": "dcd191bc702f350eec105c09fca5325ec9f23e803450dba7240acb4a6aa374c8"
+    "sha256": "3942113eaecab022377a6a6c368d0c95554a9f70dcc569bef04f089d8a7ed782"
   },
   {
     "path": "self-update-ui.test.mjs",
-    "sha256": "736651a57f203bb2570877879f1e0a26d5c28c25d4b2401ca069bc2239785125"
+    "sha256": "2f3febcbc47e7b176f563fb5cb6be655cfe78d028aaa5efab3b38cb31c3c85da"
   },
   {
     "path": "self-update-worker.test.mjs",
-    "sha256": "d2e47996486c10e171ca5230a147b8d80ca469575648036ce4c0f42b726c44a6"
+    "sha256": "01e530910e84f9e10adbc64788d60240b78e78ff8f3941a4eb64972fb0ecf216"
   },
   {
     "path": "self-update.mjs",
-    "sha256": "7243c086d4f7cac256c332fabf31ffbb14de2cb562ecd4c87358c3aeb45552c8"
+    "sha256": "26fcf8076698754c62a87bf57dc9f6efd0efc871ff92c1fef986161fd46ce0dd"
   },
   {
     "path": "self-update.test.mjs",
-    "sha256": "10b14391fcf8d6413db3e8028495afba408c11c7bf13e5b705d9b226795a62f0"
+    "sha256": "593c33a12268d45efe0e16b9d714128744acd8b120134d1315b2afc695a7603d"
   },
   {
     "path": "skills/wml-updater-integration/SKILL.md",
@@ -321,7 +329,7 @@
   },
   {
     "path": "skills/wml-updater-integration/references/game-update.md",
-    "sha256": "a48df7b08327ce394432bd0c466a31582484c950ee201efc70caff0e631ec000"
+    "sha256": "72f9804aee538ec048dccd3f7d77c4db2edac912a6d000616fe2b7e5b1f48d5e"
   },
   {
     "path": "skills/wml-updater-integration/scripts/package-mod.py",
@@ -333,11 +341,11 @@
   },
   {
     "path": "update.html",
-    "sha256": "15b75974ded863c9e98759dcfc4c2eecb4ca9590ae4ecb66d0c85883f63f2c12"
+    "sha256": "61b6e32d8430a94c056d7bc36e2c56d6443690617ce3b6c4ef2f78c01a089ce6"
   },
   {
     "path": "update.mjs",
-    "sha256": "3edd690d34d37ced2a125e3cef68180760c635529a58a42e1afe4ecbb853d385"
+    "sha256": "b72229fc15925e98d08aa2927bf5fda1b00afbbc5db78bcd303e24718ed3fbc0"
   },
   {
     "path": "vendor/cbor-x-1.6.4.mjs",
@@ -357,7 +365,7 @@
   },
   {
     "path": "wiki-admin/admin.py",
-    "sha256": "9acbdf8388a6d3729ee75645ad690f29c7928a573c0987a336ca966fadf4ff62"
+    "sha256": "e53e49041d7c63dea680b3d836ea402f85866a6341b52d070a8630cfc90672dd"
   },
   {
     "path": "wiki-admin/client.py",
@@ -369,15 +377,15 @@
   },
   {
     "path": "wiki-admin/test_client.py",
-    "sha256": "adc7a111fc0c7662c13db0fe2c97308d0e5600130c1ba40a0d51d30c92db7704"
+    "sha256": "142412593a6803ce752a48fd56126ef6abdc2f5e499dedcb0b18063626896907"
   },
   {
     "path": "wiki-auto.mjs",
-    "sha256": "70299b60355e7b96ee7246fc805c4e2f7c0f5eb862fa6486d5105dc117a91898"
+    "sha256": "c315dd652bdd4c441a455250c12ccb1d66e23966f44e51aba26f031ddd6e55cf"
   },
   {
     "path": "wiki-auto.test.mjs",
-    "sha256": "5dae50f981af25d3892bdf1a80d1b171876e79a21ba9165bc004c17e5d7aea3a"
+    "sha256": "aaada2e814d51a2375fbc57a5cb0d7da99aed505346e84b203314f266a3d1ba5"
   },
   {
     "path": "wiki-browser-test.mjs",
@@ -385,11 +393,11 @@
   },
   {
     "path": "wiki-client.mjs",
-    "sha256": "65b8a994c715398469e7f56aad45e04bd2d8a78f5427300c8a44cdf806afc8f2"
+    "sha256": "edd71432f20115b61729d4cf790ca3204db664e3a7738fb7d7d685ce0b6e0a87"
   },
   {
     "path": "wiki-client.test.mjs",
-    "sha256": "39eb21f092cb89cbaab819b88d3545fdebdc02662b696eed24833a2023b69fc0"
+    "sha256": "6744deebe1664f8398d236b58ef22cdbd2ff731d089e8fb5b00c9cc3f8eb5cb7"
   },
   {
     "path": "wiki-install.mjs",
@@ -429,11 +437,11 @@
   },
   {
     "path": "wiki-ui.mjs",
-    "sha256": "2b6303891acb3fbb9ba6042c6a95bf97e5abc62dedabb833909e81192a5a09a3"
+    "sha256": "c11c37b7473b2d694f91e8fe8102daef6f35cb693ef8f6cc5ea6ed6926cecd6e"
   },
   {
     "path": "wiki-worker.test.mjs",
-    "sha256": "f2583074a2986e8f3a4c2ca71b623bd23e7b8958d4124bd31d13cfef1c7d27f2"
+    "sha256": "451e2ce43e3a9c8baa17b91955152757649135905cafc0f06384212c414d229d"
   },
   {
     "path": "wiki/supabase/game-family-migration.sql",
@@ -457,7 +465,7 @@
   },
   {
     "path": "wml-reader.js",
-    "sha256": "eb76bf8565ec246d6e33dc197727e501335051aff1d6c6ff56208d46fe0e3622"
+    "sha256": "26eda9d8c27da9b6f802fdbb834d21baa1fa005fcb17d448d1276961cc29c967"
   },
   {
     "path": "worker-notify.test.mjs",
@@ -465,11 +473,11 @@
   },
   {
     "path": "worker-self-update.test.mjs",
-    "sha256": "5547fc50ff152a8d0c04740abfc9675521b47ce8540696229c4421d42dff73df"
+    "sha256": "3eee2993115bff5a2895308c03064f679b1b94d061c32575c31d80cfce1244dc"
   },
   {
     "path": "worker.mjs",
-    "sha256": "a91989217ec18fe1bf8bdfd7893a51d6446a66f770b00c15d73b6495f41ce5c9"
+    "sha256": "7c423fa084aa654b7f67a13ff87252c0708678b75232de097c3b3640ae25932c"
   },
   {
     "path": "zip-tools.mjs",

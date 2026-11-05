@@ -321,7 +321,7 @@ export function initWikiUI({message,askPassword,getPassword,getGame,isBusy,setBu
     finally{checkbox.disabled=false;}
   };
   const showAuto=items=>{
-    const labels={submitted:'신청됨',pending:'관리자 검토 중',published:'위키 등록됨',diagnostic_failed:'게시글 진단 실패',archive_failed:'ZIP 검사 실패',error:'연결 또는 신청 오류'};
+    const labels={submitted:'신청됨',pending:'관리자 검토 중',published:'위키 등록됨',unknown:'접수 여부를 관리자에게 확인해 주세요',diagnostic_failed:'게시글 진단 실패',archive_failed:'ZIP 검사 실패',error:'연결 또는 신청 오류'};
     if(!Array.isArray(items) || !items.length) return;
     $('wiki-auto-status').textContent=items.slice(0,20).map(item=>`${text(item.modId,64)}: ${labels[item.status] || '상태 확인 필요'}`).join(' · ');
   };

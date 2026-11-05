@@ -15,7 +15,9 @@ async function request(path, options = {}, timeout = 15000) {
     if(options.method==='POST' && response.status>=500) throw Object.assign(new Error('서버 응답이 불확실합니다. 중복 신청 전 관리자에게 접수 여부를 확인해 주세요.'),{code:'SUBMISSION_UNKNOWN'});
     let detail='';
     try { const body=await response.json(); if(typeof body?.error==='string') detail=body.error.slice(0,500); } catch {}
-    throw new Error(detail || `위키 연결에 실패했습니다. (${response.status})`);
+    const error=new Error(detail || `위키 연결에 실패했습니다. (${response.status})`);
+    if(options.method==='POST' && response.status===400 && detail==='이 모드는 이미 검토 대기 중입니다.') error.code='WIKI_ALREADY_PENDING';
+    throw error;
   }
   let value;
   try { value=await response.json(); }

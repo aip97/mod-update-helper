@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import {holdUpdaterWindow} from './self-update.mjs';
 
-const data={helperUpdateStatus:{state:'waiting',version:'0.7.0',latest:'0.7.1'}}, calls=[];
-const elements={'self-update-status':{},'self-update-apply':{}};
+const data={helperUpdateStatus:{state:'waiting',version:'0.7.0',latest:'0.7.1',release:{postURL:'https://kone.gg/s/wayward-wml/cxDZPwAi6ZQYfWwmovNAeb',url:'https://kio.ac/c/dDt9ZC8_D_KbDWKWJiNkeb',fileName:'Mod-Update-Helper-User-0.7.1.zip',size:4,envelope:'{"signed":1}'}}}, calls=[], uploads=[], downloads=[];
+const elements={'self-update-status':{},'self-update-apply':{},'self-update-login':{}};
 let otherWindow=true, mode='updated', reloads=0, leases=0, installedVersion='0.7.0', onChanged;
 globalThis.document={getElementById:id=>elements[id]};
 globalThis.window={addEventListener(){},removeEventListener(){}};
@@ -12,13 +12,14 @@ globalThis.chrome={
   tabs:{async getCurrent(){return {id:9};}},
   runtime:{getManifest:()=>({version:'0.7.0'}),reload(){reloads++;},connectNative(){
     let message,disconnect,op;return {onMessage:{addListener(fn){message=fn;}},onDisconnect:{addListener(fn){disconnect=fn;}},disconnect(){if(op==='self-lease') leases--;disconnect?.();},postMessage(request){
-      op=request.op;calls.push(op);if(op==='self-lease') leases++;
+      op=request.op;calls.push(op);if(op==='self-upload'){uploads.push(request);return;}if(op==='self-apply') assert.equal(request.envelope,'{"signed":1}');if(op==='self-lease') leases++;
       queueMicrotask(()=>message({id:1,ok:mode!=='error' || op!=='self-apply',error:'test failure',result:{state:op==='self-apply'?mode:'idle',version:op==='self-apply'?'0.7.1':installedVersion}}));
     }};
   }}
 };
 Object.defineProperty(globalThis,'navigator',{configurable:true,value:{locks:{async request(name,options,fn){assert.equal(name,'wml-mod-updater-self-update');return fn(options.ifAvailable && otherWindow ? null : {});}}}});
-const updater=await holdUpdaterWindow();
+const download=async release=>{downloads.push(release.fileName);return new Uint8Array([1,2,3,4]).buffer;};
+const updater=await holdUpdaterWindow({download});
 await new Promise(resolve=>setTimeout(resolve,0));
 assert.match(elements['self-update-status'].textContent,/0\.7\.0.*0\.7\.1/);
 assert.equal(elements['self-update-apply'].hidden,false);
@@ -35,12 +36,15 @@ await assert.rejects(updater.apply(),/test failure/);
 assert.equal(leases,1,'failed installation restores the lease');
 assert.equal(data.helperUpdateReopen,undefined);
 mode='updated';
+uploads.length=0;
 assert.equal((await updater.apply()).state,'updated');
+assert.deepEqual(uploads.map(item=>[item.offset,item.total,item.data]),[[0,4,'AQIDBA==']],'the downloaded ZIP is streamed to the native host');
+assert.ok(downloads.every(name=>name==='Mod-Update-Helper-User-0.7.1.zip'));
 assert.equal(leases,0);assert.equal(reloads,1);
 assert.deepEqual(data.helperUpdateReopen,{tabId:9,url:'chrome-extension://id/update.html?tab=42',fromVersion:'0.7.0'});
 assert.equal(data.helperUpdateStatus.version,'0.7.1');
 installedVersion='0.7.1'; otherWindow=true;
-const stale=await holdUpdaterWindow();
+const stale=await holdUpdaterWindow({download});
 await new Promise(resolve=>setTimeout(resolve,0));
 assert.equal(reloads,1,'a version mismatch must not automatically restart the extension');
 assert.equal(data.helperUpdateStatus.state,'restart');
@@ -53,4 +57,11 @@ const applyCalls=calls.filter(op=>op==='self-apply').length;
 assert.equal((await stale.apply()).state,'updated');
 assert.equal(calls.filter(op=>op==='self-apply').length,applyCalls,'a version mismatch only restarts, it does not apply a second update');
 assert.equal(reloads,2);
+assert.equal(elements['self-update-login'].hidden,true,'the login link stays hidden while the post is readable');
+await chrome.storage.local.set({helperUpdateStatus:{state:'login_required',version:'0.7.1',postURL:'https://kone.gg/s/wayward-wml/cxDZPwAi6ZQYfWwmovNAeb',checkedAt:Date.now()}});
+await new Promise(resolve=>setTimeout(resolve,0));
+assert.match(elements['self-update-status'].textContent,/코네 로그인 필요/);
+assert.equal(elements['self-update-login'].hidden,false);
+assert.equal(elements['self-update-login'].href,'https://kone.gg/s/wayward-wml/cxDZPwAi6ZQYfWwmovNAeb');
+assert.equal(elements['self-update-apply'].hidden,true,'no update can start before signing in');
 console.log('Self update UI: version, other-window protection, failure recovery and restart passed.');
